@@ -11,8 +11,8 @@ class GRUModel {
         this.trainingHistory = {
             loss: [],
             valLoss: [],
-            accuracy: [],
-            valAccuracy: [],
+            mae: [],
+            valMae: [],
             epochs: []
         };
         this.inputShape = [60, 1]; // 60 days, 1 feature
@@ -32,18 +32,18 @@ class GRUModel {
         
         // First GRU layer
         this.model.add(tf.layers.gru({
-            units: 64,
+            units: 128,
             returnSequences: true,
             inputShape: this.inputShape,
             kernelInitializer: 'glorotNormal'
         }));
         
         // Dropout for regularization
-        this.model.add(tf.layers.dropout({ rate: 0.2 }));
+        this.model.add(tf.layers.dropout({ rate: 0.3 }));
         
         // Second GRU layer
         this.model.add(tf.layers.gru({
-            units: 32,
+            units: 64,
             returnSequences: false,
             kernelInitializer: 'glorotNormal'
         }));
@@ -53,7 +53,7 @@ class GRUModel {
         
         // Dense layer
         this.model.add(tf.layers.dense({
-            units: 16,
+            units: 32,
             activation: 'relu',
             kernelInitializer: 'heNormal'
         }));
@@ -73,7 +73,6 @@ class GRUModel {
         });
         
         console.log('Model built successfully');
-        this.model.summary();
         
         return this.model;
     }
@@ -99,7 +98,7 @@ class GRUModel {
         this.isTraining = true;
         
         const batchSize = 32;
-        const epochs = 50;
+        const epochs = 100;
         
         try {
             const history = await this.model.fit(X_train, y_train, {
@@ -111,8 +110,8 @@ class GRUModel {
                         // Store training history
                         this.trainingHistory.loss.push(logs.loss);
                         this.trainingHistory.valLoss.push(logs.val_loss);
-                        this.trainingHistory.accuracy.push(logs.mae); // Using MAE as accuracy proxy
-                        this.trainingHistory.valAccuracy.push(logs.val_mae);
+                        this.trainingHistory.mae.push(logs.mae);
+                        this.trainingHistory.valMae.push(logs.val_mae);
                         this.trainingHistory.epochs.push(epoch + 1);
                         
                         // Call user callback if provided
@@ -237,53 +236,4 @@ class GRUModel {
             
             // Load weights
             await this.model.load('localstorage://sp500-gru-model');
-            console.log('Model weights loaded successfully');
-            return true;
-        } catch (error) {
-            console.error('Failed to load model weights:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Get model summary
-     * @returns {Object} - Model information
-     */
-    getModelInfo() {
-        if (!this.model) {
-            return null;
-        }
-        
-        const trainableParams = this.model.trainableWeights
-            .map(w => w.shape.reduce((a, b) => a * b))
-            .reduce((a, b) => a + b, 0);
-        
-        return {
-            layers: this.model.layers.length,
-            trainableParams: trainableParams.toLocaleString(),
-            inputShape: this.inputShape,
-            outputShape: this.outputShape
-        };
-    }
-
-    /**
-     * Clean up model and tensors
-     */
-    dispose() {
-        if (this.model) {
-            this.model.dispose();
-            this.model = null;
-        }
-        this.isTraining = false;
-        this.trainingHistory = {
-            loss: [],
-            valLoss: [],
-            accuracy: [],
-            valAccuracy: [],
-            epochs: []
-        };
-    }
-}
-
-// Export singleton instance
-export const gruModel = new GRUModel();
+            console.log
