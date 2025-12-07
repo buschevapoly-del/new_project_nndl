@@ -36,15 +36,28 @@ class DataLoader {
             reader.onload = (event) => {
                 try {
                     const content = event.target.result;
+                    console.log('CSV content length:', content.length);
+                    
                     // Parse CSV content (assuming single column of prices)
                     const lines = content.split('\n').filter(line => line.trim() !== '');
                     
                     // Remove possible header and empty values
-                    const prices = lines.map(line => {
+                    const prices = [];
+                    for (let line of lines) {
                         // Handle quoted values and empty strings
-                        const val = line.replace(/"/g, '').trim();
-                        return val && !isNaN(parseFloat(val)) ? parseFloat(val) : null;
-                    }).filter(val => val !== null);
+                        const cleaned = line.replace(/"/g, '').replace(/'/g, '').trim();
+                        if (cleaned === '') continue;
+                        
+                        // Handle the special character at the beginning
+                        const cleanLine = cleaned.replace(/^[^0-9.-]+/, '');
+                        const val = parseFloat(cleanLine);
+                        
+                        if (!isNaN(val) && isFinite(val) && val > 0) {
+                            prices.push(val);
+                        }
+                    }
+                    
+                    console.log('Parsed prices:', prices.length, 'records');
                     
                     if (prices.length === 0) {
                         reject(new Error('No valid numeric data found in CSV'));
@@ -54,6 +67,7 @@ class DataLoader {
                     this.rawData = prices;
                     resolve(prices);
                 } catch (error) {
+                    console.error('CSV parsing error:', error);
                     reject(new Error(`CSV parsing error: ${error.message}`));
                 }
             };
@@ -64,6 +78,47 @@ class DataLoader {
             
             reader.readAsText(file);
         });
+    }
+
+    /**
+     * Generate sample CSV data for testing
+     * @returns {string} - Sample CSV content
+     */
+    generateSampleCSV() {
+        // Generate sample S&P 500 data (last 1000 trading days)
+        const startPrice = 4000;
+        const volatility = 0.015;
+        const drift = 0.0002;
+        
+        let prices = [startPrice];
+        
+        for (let i = 1; i < 1000; i++) {
+            const randomChange = (Math.random() - 0.5) * 2 * volatility;
+            const trend = drift * i;
+            const newPrice = prices[i-1] * (1 + randomChange + trend);
+            prices.push(Math.round(newPrice * 100) / 100);
+        }
+        
+        // Format as CSV
+        const csvContent = prices.map(price => price.toString()).join('\n');
+        return csvContent;
+    }
+
+    /**
+     * Download sample CSV file
+     */
+    downloadSampleCSV() {
+        const csvContent = this.generateSampleCSV();
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'sp500_sample_data.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 
     /**
@@ -148,6 +203,12 @@ class DataLoader {
         this.y_train = tf.tensor2d(y_train, [y_train.length, this.forecastDays]);
         this.X_test = tf.tensor3d(X_test, [X_test.length, this.windowSize, 1]);
         this.y_test = tf.tensor2d(y_test, [y_test.length, this.forecastDays]);
+        
+        console.log('Dataset prepared:');
+        console.log('X_train shape:', this.X_train.shape);
+        console.log('y_train shape:', this.y_train.shape);
+        console.log('X_test shape:', this.X_test.shape);
+        console.log('y_test shape:', this.y_test.shape);
         
         return {
             X_train: this.X_train,
