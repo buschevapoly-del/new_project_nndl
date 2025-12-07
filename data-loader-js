@@ -1,240 +1,272 @@
 // data-loader.js
-class DataLoader {
-    constructor() {
-        this.rawData = null;
-        this.normalizedData = null;
-        this.minValues = null;
-        this.maxValues = null;
-        this.X_train = null;
-        this.y_train = null;
-        this.X_test = null;
-        this.y_test = null;
-        this.trainSize = 0.8; // 80% training, 20% testing
-        this.featureColumns = [];
+const fs = require('fs');
+const path = require('path');
+const csv = require('csv-parser');
+const https = require('https');
+const fetch = require('node-fetch'); // Для использования fetch в Node.js
+
+/**
+ * Загружает файл с GitHub Raw URL
+ * @param {string} githubUrl - GitHub Raw URL
+ * @returns {Promise<string>} - Содержимое файла
+ */
+async function loadFromGitHub(githubUrl) {
+  try {
+    console.log(`Загрузка данных из GitHub: ${githubUrl}`);
+    
+    // Преобразуем GitHub URL в raw URL если нужно
+    let rawUrl = githubUrl;
+    if (githubUrl.includes('github.com') && !githubUrl.includes('raw.githubusercontent.com')) {
+      rawUrl = githubUrl
+        .replace('github.com', 'raw.githubusercontent.com')
+        .replace('/blob/', '/');
     }
-
-    /**
-     * Load and parse CSV file
-     * @param {File} file - CSV file from file input
-     * @returns {Promise<Array>} Parsed data
-     */
-    async loadCSV(file) {
-        return new Promise((resolve, reject) => {
-            Papa.parse(file, {
-                header: true,
-                dynamicTyping: true,
-                skipEmptyLines: true,
-                complete: (results) => {
-                    if (results.errors.length > 0) {
-                        reject(new Error(`CSV parsing errors: ${results.errors.map(e => e.message).join(', ')}`));
-                        return;
-                    }
-                    
-                    if (results.data.length === 0) {
-                        reject(new Error('CSV file is empty'));
-                        return;
-                    }
-
-                    // Store raw data
-                    this.rawData = results.data;
-                    
-                    // Extract feature columns (all columns except date)
-                    this.featureColumns = Object.keys(results.data[0]).filter(col => 
-                        col.toLowerCase() !== 'date' && 
-                        col.toLowerCase() !== 'timestamp'
-                    );
-                    
-                    if (this.featureColumns.length === 0) {
-                        reject(new Error('No numeric columns found in CSV'));
-                        return;
-                    }
-                    
-                    console.log(`Loaded ${results.data.length} rows with ${this.featureColumns.length} features`);
-                    resolve(results.data);
-                },
-                error: (error) => {
-                    reject(error);
-                }
-            });
-        });
+    
+    const response = await fetch(rawUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Ошибка загрузки: ${response.status} ${response.statusText}`);
     }
-
-    /**
-     * Calculate daily returns from price data
-     * @param {Array} data - Raw price data
-     * @returns {Array} Returns data
-     */
-    calculateReturns(data) {
-        const returnsData = [];
-        
-        for (let i = 1; i < data.length; i++) {
-            const returnRow = {};
-            const prevRow = data[i - 1];
-            const currRow = data[i];
-            
-            this.featureColumns.forEach(col => {
-                if (prevRow[col] !== null && prevRow[col] !== undefined && prevRow[col] !== 0) {
-                    returnRow[col] = (currRow[col] - prevRow[col]) / prevRow[col];
-                } else {
-                    returnRow[col] = 0;
-                }
-            });
-            
-            returnsData.push(returnRow);
-        }
-        
-        return returnsData;
-    }
-
-    /**
-     * Normalize data using Min-Max scaling per feature
-     * @param {Array} data - Returns data
-     * @returns {Object} Normalized data and scalers
-     */
-    normalizeData(data) {
-        if (!data || data.length === 0) {
-            throw new Error('No data to normalize');
-        }
-
-        // Initialize min and max arrays
-        this.minValues = new Array(this.featureColumns.length).fill(Infinity);
-        this.maxValues = new Array(this.featureColumns.length).fill(-Infinity);
-
-        // Find min and max for each feature
-        data.forEach(row => {
-            this.featureColumns.forEach((col, idx) => {
-                const value = row[col];
-                if (value < this.minValues[idx]) this.minValues[idx] = value;
-                if (value > this.maxValues[idx]) this.maxValues[idx] = value;
-            });
-        });
-
-        // Normalize data
-        this.normalizedData = data.map(row => {
-            const normalizedRow = {};
-            this.featureColumns.forEach((col, idx) => {
-                const range = this.maxValues[idx] - this.minValues[idx];
-                if (range === 0) {
-                    normalizedRow[col] = 0;
-                } else {
-                    normalizedRow[col] = (row[col] - this.minValues[idx]) / range;
-                }
-            });
-            return normalizedRow;
-        });
-
-        return this.normalizedData;
-    }
-
-    /**
-     * Create sliding window sequences
-     * @param {Array} data - Normalized data
-     * @param {number} lookback - Window size
-     * @param {number} horizon - Prediction horizon
-     * @returns {Object} Features and labels
-     */
-    createSequences(data, lookback = 60, horizon = 5) {
-        if (data.length <= lookback + horizon) {
-            throw new Error(`Not enough data for lookback ${lookback} and horizon ${horizon}`);
-        }
-
-        const sequences = [];
-        const labels = [];
-
-        for (let i = 0; i < data.length - lookback - horizon + 1; i++) {
-            // Create sequence (lookback window)
-            const sequence = [];
-            for (let j = 0; j < lookback; j++) {
-                const row = data[i + j];
-                const features = this.featureColumns.map(col => row[col]);
-                sequence.push(features);
-            }
-
-            // Create label (average return over horizon)
-            const futureReturns = [];
-            for (let j = 0; j < horizon; j++) {
-                const row = data[i + lookback + j];
-                // Use first feature (S&P 500) as target
-                futureReturns.push(row[this.featureColumns[0]]);
-            }
-            
-            // Binary classification: 1 if average future return > 0, else 0
-            const avgReturn = futureReturns.reduce((a, b) => a + b, 0) / horizon;
-            const label = avgReturn > 0 ? 1 : 0;
-
-            sequences.push(sequence);
-            labels.push(label);
-        }
-
-        return { sequences, labels };
-    }
-
-    /**
-     * Prepare training and testing datasets
-     * @param {number} lookback - Window size
-     * @param {number} horizon - Prediction horizon
-     */
-    prepareDatasets(lookback = 60, horizon = 5) {
-        if (!this.normalizedData) {
-            throw new Error('Data not normalized. Call normalizeData first.');
-        }
-
-        const { sequences, labels } = this.createSequences(this.normalizedData, lookback, horizon);
-        
-        // Split chronologically
-        const splitIndex = Math.floor(sequences.length * this.trainSize);
-        
-        // Convert to tensors
-        this.X_train = tf.tensor3d(sequences.slice(0, splitIndex));
-        this.y_train = tf.tensor2d(labels.slice(0, splitIndex), [splitIndex, 1]);
-        this.X_test = tf.tensor3d(sequences.slice(splitIndex));
-        this.y_test = tf.tensor2d(labels.slice(splitIndex), [sequences.length - splitIndex, 1]);
-
-        console.log(`Training set: ${this.X_train.shape[0]} samples`);
-        console.log(`Testing set: ${this.X_test.shape[0]} samples`);
-        console.log(`Sequence shape: [${lookback}, ${this.featureColumns.length}]`);
-
-        return {
-            X_train: this.X_train,
-            y_train: this.y_train,
-            X_test: this.X_test,
-            y_test: this.y_test,
-            featureCount: this.featureColumns.length
-        };
-    }
-
-    /**
-     * Get the most recent sequence for prediction
-     * @param {number} lookback - Window size
-     * @returns {tf.Tensor} Sequence tensor
-     */
-    getLatestSequence(lookback = 60) {
-        if (!this.normalizedData || this.normalizedData.length < lookback) {
-            throw new Error('Not enough data for prediction');
-        }
-
-        const latestData = this.normalizedData.slice(-lookback);
-        const sequence = latestData.map(row => 
-            this.featureColumns.map(col => row[col])
-        );
-
-        return tf.tensor3d([sequence]);
-    }
-
-    /**
-     * Clean up tensors to free memory
-     */
-    dispose() {
-        if (this.X_train) this.X_train.dispose();
-        if (this.y_train) this.y_train.dispose();
-        if (this.X_test) this.X_test.dispose();
-        if (this.y_test) this.y_test.dispose();
-        
-        this.X_train = null;
-        this.y_train = null;
-        this.X_test = null;
-        this.y_test = null;
-    }
+    
+    return await response.text();
+  } catch (error) {
+    throw new Error(`Ошибка загрузки с GitHub: ${error.message}`);
+  }
 }
 
-export default DataLoader;
+/**
+ * Загружает данные из локального файла
+ * @param {string} filePath - Путь к файлу
+ * @returns {Promise<string>} - Содержимое файла
+ */
+function loadFromLocal(filePath) {
+  return new Promise((resolve, reject) => {
+    fs.readFile(filePath, 'utf8', (err, data) => {
+      if (err) reject(err);
+      else resolve(data);
+    });
+  });
+}
+
+/**
+ * Парсит CSV данные
+ * @param {string} csvData - CSV данные в виде строки
+ * @param {Object} options - Опции парсинга
+ * @returns {Promise<Array>} - Массив объектов с данными
+ */
+async function parseCSVData(csvData, options = {}) {
+  return new Promise((resolve, reject) => {
+    const results = [];
+    let dateCounter = 0;
+    const startDate = new Date('2000-01-01');
+    
+    // Создаем поток из строки
+    const { Readable } = require('stream');
+    const stream = Readable.from(csvData);
+    
+    stream
+      .pipe(csv({
+        headers: false,
+        skipLines: 0
+      }))
+      .on('data', (data) => {
+        const value = data['0'];
+        
+        // Пропускаем строки с заголовком и пустые строки
+        if (value === '^GSPC' || value === '""' || !value || value.trim() === '') {
+          return;
+        }
+        
+        try {
+          const price = parseFloat(value);
+          
+          if (!isNaN(price)) {
+            const currentDate = new Date(startDate);
+            currentDate.setDate(startDate.getDate() + dateCounter);
+            dateCounter++;
+            
+            results.push({
+              date: currentDate.toISOString().split('T')[0],
+              price: price,
+              timestamp: currentDate.getTime()
+            });
+          }
+        } catch (error) {
+          console.warn(`Ошибка обработки строки: ${value}`, error);
+        }
+      })
+      .on('end', () => {
+        console.log(`Парсинг завершен. Загружено ${results.length} записей`);
+        resolve(results);
+      })
+      .on('error', (error) => {
+        reject(error);
+      });
+  });
+}
+
+/**
+ * Фильтрует данные, оставляя только один показатель за день
+ */
+function filterDailyData(data) {
+  const dailyMap = new Map();
+  
+  data.forEach(item => {
+    dailyMap.set(item.date, item);
+  });
+  
+  return Array.from(dailyMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/**
+ * Создает сгруппированные данные по месяцам
+ */
+function createMonthlyData(data) {
+  const monthlyMap = new Map();
+  
+  data.forEach(item => {
+    const date = new Date(item.date);
+    const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    
+    if (!monthlyMap.has(yearMonth)) {
+      monthlyMap.set(yearMonth, {
+        date: `${yearMonth}-01`,
+        open: item.price,
+        high: item.price,
+        low: item.price,
+        close: item.price,
+        volume: 0,
+        count: 1
+      });
+    } else {
+      const monthData = monthlyMap.get(yearMonth);
+      monthData.high = Math.max(monthData.high, item.price);
+      monthData.low = Math.min(monthData.low, item.price);
+      monthData.close = item.price;
+      monthData.count++;
+    }
+  });
+  
+  return Array.from(monthlyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Основная функция загрузки данных
+ * @param {string} source - Путь к файлу или GitHub URL
+ * @param {Object} options - Опции загрузки
+ * @param {boolean} options.monthly - Группировать по месяцам
+ * @returns {Promise<Array>}
+ */
+async function loadData(source, options = { monthly: false }) {
+  try {
+    let csvData;
+    
+    // Определяем источник данных
+    if (source.startsWith('http') && source.includes('github')) {
+      // Загрузка с GitHub
+      csvData = await loadFromGitHub(source);
+    } else {
+      // Загрузка локального файла
+      const fullPath = path.isAbsolute(source) 
+        ? source 
+        : path.join(process.cwd(), source);
+      
+      console.log(`Загрузка локального файла: ${fullPath}`);
+      
+      if (!fs.existsSync(fullPath)) {
+        throw new Error(`Файл не найден: ${fullPath}`);
+      }
+      
+      csvData = await loadFromLocal(fullPath);
+    }
+    
+    // Парсим CSV данные
+    const rawData = await parseCSVData(csvData);
+    
+    if (rawData.length === 0) {
+      throw new Error('Файл не содержит данных или имеет неправильный формат');
+    }
+    
+    console.log(`Первые 5 записей:`, rawData.slice(0, 5));
+    console.log(`Последние 5 записей:`, rawData.slice(-5));
+    
+    // Фильтруем для получения ежедневных данных
+    const dailyData = filterDailyData(rawData);
+    
+    if (options.monthly) {
+      const monthlyData = createMonthlyData(dailyData);
+      console.log(`Создано ${monthlyData.length} месячных записей`);
+      return monthlyData;
+    }
+    
+    console.log(`Получено ${dailyData.length} уникальных дневных записей`);
+    return dailyData;
+    
+  } catch (error) {
+    console.error('Ошибка загрузки данных:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Сохраняет данные в JSON файл
+ */
+function saveDataToJson(data, outputPath) {
+  const fullOutputPath = path.isAbsolute(outputPath)
+    ? outputPath
+    : path.join(process.cwd(), outputPath);
+  
+  const dir = path.dirname(fullOutputPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  
+  fs.writeFileSync(fullOutputPath, JSON.stringify(data, null, 2), 'utf8');
+  console.log(`Данные сохранены в: ${fullOutputPath}`);
+}
+
+/**
+ * Пример работы с конкретным GitHub URL
+ */
+async function loadFromSpecificGitHub() {
+  const githubUrl = 'https://github.com/buschevapoly-del/new_project_nndl/blob/97648cb37fafc348b073c1085c7c31df779e97dd/my_data.csv';
+  
+  try {
+    console.log('Загрузка данных с конкретного GitHub репозитория...');
+    const data = await loadData(githubUrl);
+    console.log(`Успешно загружено ${data.length} записей`);
+    return data;
+  } catch (error) {
+    console.error('Ошибка:', error.message);
+    throw error;
+  }
+}
+
+// Экспорт функций
+module.exports = {
+  loadData,
+  loadFromGitHub,
+  parseCSVData,
+  filterDailyData,
+  createMonthlyData,
+  saveDataToJson,
+  loadFromSpecificGitHub
+};
+
+// Пример использования (если файл запускается напрямую)
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  const source = args[0] || 'https://github.com/buschevapoly-del/new_project_nndl/blob/97648cb37fafc348b073c1085c7c31df779e97dd/my_data.csv';
+  const outputPath = args[1] || './historical-data.json';
+  const isMonthly = args.includes('--monthly');
+  
+  loadData(source, { monthly: isMonthly })
+    .then(data => {
+      saveDataToJson(data, outputPath);
+      console.log('Готово!');
+    })
+    .catch(error => {
+      console.error('Ошибка:', error);
+      process.exit(1);
+    });
+}
