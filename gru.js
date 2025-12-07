@@ -1,47 +1,75 @@
 // gru.js
+/**
+ * GRU Model Module
+ * Defines, trains, and evaluates the GRU model for stock prediction
+ */
+
 class GRUModel {
-    constructor(featureCount, lookback = 60, horizon = 5) {
-        this.featureCount = featureCount;
-        this.lookback = lookback;
-        this.horizon = horizon;
+    constructor() {
         this.model = null;
-        this.history = null;
-        this.isTrained = false;
+        this.isTraining = false;
+        this.trainingHistory = {
+            loss: [],
+            valLoss: [],
+            accuracy: [],
+            valAccuracy: [],
+            epochs: []
+        };
+        this.inputShape = [60, 1]; // 60 days, 1 feature
+        this.outputShape = 5; // Predict 5 days
     }
 
     /**
      * Build and compile the GRU model
      */
     buildModel() {
+        // Clear any existing model
+        if (this.model) {
+            this.model.dispose();
+        }
+
         this.model = tf.sequential();
         
         // First GRU layer
         this.model.add(tf.layers.gru({
             units: 64,
             returnSequences: true,
-            inputShape: [this.lookback, this.featureCount],
-            kernelRegularizer: tf.regularizers.l2({ l2: 0.01 })
+            inputShape: this.inputShape,
+            kernelInitializer: 'glorotNormal'
         }));
         
         // Dropout for regularization
-        this.model.add(tf.layers.dropout({ rate: 0.3 }));
+        this.model.add(tf.layers.dropout({ rate: 0.2 }));
         
         // Second GRU layer
         this.model.add(tf.layers.gru({
             units: 32,
-            kernelRegularizer: tf.regularizers.l2({ l2: 0.01 })
+            returnSequences: false,
+            kernelInitializer: 'glorotNormal'
         }));
         
-        // Dense layers
-        this.model.add(tf.layers.dense({ units: 16, activation: 'relu' }));
+        // Dropout
         this.model.add(tf.layers.dropout({ rate: 0.2 }));
-        this.model.add(tf.layers.dense({ units: 1, activation: 'sigmoid' }));
+        
+        // Dense layer
+        this.model.add(tf.layers.dense({
+            units: 16,
+            activation: 'relu',
+            kernelInitializer: 'heNormal'
+        }));
+        
+        // Output layer - predict 5 days
+        this.model.add(tf.layers.dense({
+            units: this.outputShape,
+            activation: 'linear',
+            kernelInitializer: 'glorotNormal'
+        }));
         
         // Compile model
         this.model.compile({
             optimizer: tf.train.adam(0.001),
-            loss: 'binaryCrossentropy',
-            metrics: ['accuracy', 'mse']
+            loss: 'meanSquaredError',
+            metrics: ['mae'] // Mean Absolute Error
         });
         
         console.log('Model built successfully');
@@ -54,180 +82,208 @@ class GRUModel {
      * Train the model
      * @param {tf.Tensor} X_train - Training features
      * @param {tf.Tensor} y_train - Training labels
-     * @param {tf.Tensor} X_test - Testing features
-     * @param {tf.Tensor} y_test - Testing labels
-     * @param {number} epochs - Number of training epochs
-     * @param {Function} onEpochEnd - Callback for epoch updates
-     * @returns {Promise} Training history
+     * @param {tf.Tensor} X_val - Validation features
+     * @param {tf.Tensor} y_val - Validation labels
+     * @param {Object} callbacks - Training callbacks
+     * @returns {Promise} - Training history
      */
-    async train(X_train, y_train, X_test, y_test, epochs = 50, onEpochEnd = null) {
+    async train(X_train, y_train, X_val, y_val, callbacks = {}) {
         if (!this.model) {
-            this.buildModel();
+            throw new Error('Model not built. Call buildModel() first.');
         }
-
-        // Calculate batch size (use 32 or smaller for browser memory)
-        const batchSize = Math.min(32, X_train.shape[0]);
         
-        this.history = await this.model.fit(X_train, y_train, {
-            epochs: epochs,
-            batchSize: batchSize,
-            validationData: [X_test, y_test],
-            callbacks: {
-                onEpochEnd: async (epoch, logs) => {
-                    // Clean up memory
-                    tf.tidy(() => {});
-                    await tf.nextFrame();
-                    
-                    if (onEpochEnd) {
-                        onEpochEnd(epoch, logs);
+        if (!X_train || !y_train) {
+            throw new Error('Training data not provided');
+        }
+        
+        this.isTraining = true;
+        
+        const batchSize = 32;
+        const epochs = 50;
+        
+        try {
+            const history = await this.model.fit(X_train, y_train, {
+                batchSize,
+                epochs,
+                validationData: [X_val, y_val],
+                callbacks: {
+                    onEpochEnd: (epoch, logs) => {
+                        // Store training history
+                        this.trainingHistory.loss.push(logs.loss);
+                        this.trainingHistory.valLoss.push(logs.val_loss);
+                        this.trainingHistory.accuracy.push(logs.mae); // Using MAE as accuracy proxy
+                        this.trainingHistory.valAccuracy.push(logs.val_mae);
+                        this.trainingHistory.epochs.push(epoch + 1);
+                        
+                        // Call user callback if provided
+                        if (callbacks.onEpochEnd) {
+                            callbacks.onEpochEnd(epoch, logs);
+                        }
+                        
+                        // Check if training should stop
+                        if (!this.isTraining) {
+                            this.model.stopTraining = true;
+                        }
+                    },
+                    onTrainEnd: () => {
+                        this.isTraining = false;
+                        if (callbacks.onTrainEnd) {
+                            callbacks.onTrainEnd();
+                        }
                     }
-                }
-            }
-        });
-
-        this.isTrained = true;
-        console.log('Training completed');
-        
-        return this.history;
+                },
+                shuffle: true,
+                verbose: 0
+            });
+            
+            return history;
+        } catch (error) {
+            this.isTraining = false;
+            throw error;
+        }
     }
 
     /**
-     * Predict on test data
-     * @param {tf.Tensor} X - Input features
-     * @returns {Array} Predictions
+     * Stop training
+     */
+    stopTraining() {
+        this.isTraining = false;
+        if (this.model) {
+            this.model.stopTraining = true;
+        }
+    }
+
+    /**
+     * Make predictions
+     * @param {tf.Tensor} X - Input data
+     * @returns {tf.Tensor} - Predictions
      */
     predict(X) {
-        if (!this.model || !this.isTrained) {
-            throw new Error('Model not trained yet');
+        if (!this.model) {
+            throw new Error('Model not trained');
         }
-
-        const predictions = this.model.predict(X);
-        return predictions;
+        
+        return this.model.predict(X);
     }
 
     /**
-     * Evaluate model performance
+     * Evaluate model on test data
      * @param {tf.Tensor} X_test - Test features
      * @param {tf.Tensor} y_test - Test labels
-     * @returns {Object} Evaluation metrics
+     * @returns {Object} - Evaluation metrics
      */
-    async evaluate(X_test, y_test) {
-        if (!this.model || !this.isTrained) {
-            throw new Error('Model not trained yet');
+    evaluate(X_test, y_test) {
+        if (!this.model) {
+            throw new Error('Model not trained');
         }
-
-        const evaluation = this.model.evaluate(X_test, y_test);
-        const loss = await evaluation[0].dataSync()[0];
-        const accuracy = await evaluation[1].dataSync()[0];
-        const mse = await evaluation[2].dataSync()[0];
-
-        // Calculate confusion matrix
-        const predictions = this.predict(X_test);
-        const predValues = await predictions.dataSync();
-        const trueValues = await y_test.dataSync();
         
-        let tp = 0, tn = 0, fp = 0, fn = 0;
+        const results = this.model.evaluate(X_test, y_test);
+        const loss = results[0].dataSync()[0];
+        const mae = results[1].dataSync()[0];
         
-        for (let i = 0; i < predValues.length; i++) {
-            const pred = predValues[i] > 0.5 ? 1 : 0;
-            const trueVal = trueValues[i];
-            
-            if (pred === 1 && trueVal === 1) tp++;
-            else if (pred === 0 && trueVal === 0) tn++;
-            else if (pred === 1 && trueVal === 0) fp++;
-            else if (pred === 0 && trueVal === 1) fn++;
-        }
-
         // Clean up
-        predictions.dispose();
-        evaluation.forEach(tensor => tensor.dispose());
-
+        results.forEach(tensor => tensor.dispose());
+        
         return {
-            loss,
-            accuracy,
-            mse,
-            confusionMatrix: { tp, tn, fp, fn },
-            totalSamples: predValues.length
+            loss: loss,
+            mae: mae,
+            rmse: Math.sqrt(loss) // Root Mean Squared Error
         };
     }
 
     /**
-     * Predict future days
-     * @param {tf.Tensor} latestSequence - Most recent sequence
-     * @returns {Array} Future predictions (0-1 probabilities)
+     * Forecast next N days using the latest window
+     * @param {tf.Tensor} latestWindow - Latest window of data
+     * @returns {Array} - Forecasted values
      */
-    async predictFuture(latestSequence) {
-        if (!this.model || !this.isTrained) {
-            throw new Error('Model not trained yet');
+    forecast(latestWindow) {
+        if (!this.model) {
+            throw new Error('Model not trained');
         }
-
-        const prediction = this.model.predict(latestSequence);
-        const value = await prediction.dataSync()[0];
         
+        const prediction = this.predict(latestWindow);
+        const values = Array.from(prediction.dataSync());
         prediction.dispose();
         
-        return value;
+        return values;
     }
 
     /**
      * Save model weights
-     * @returns {Object} Model weights
+     * @returns {Object} - Model weights
      */
     async saveWeights() {
         if (!this.model) {
-            throw new Error('Model not built yet');
+            throw new Error('Model not trained');
         }
         
-        const weights = await this.model.getWeights();
-        const weightData = await Promise.all(weights.map(async w => {
-            return {
-                data: await w.dataSync(),
-                shape: w.shape
-            };
-        }));
-        
-        return {
-            featureCount: this.featureCount,
-            lookback: this.lookback,
-            horizon: this.horizon,
-            weights: weightData
-        };
+        return await this.model.save('localstorage://sp500-gru-model');
     }
 
     /**
      * Load model weights
-     * @param {Object} weightData - Saved weight data
+     * @returns {boolean} - Success status
      */
-    async loadWeights(weightData) {
-        if (!this.model) {
-            this.featureCount = weightData.featureCount;
-            this.lookback = weightData.lookback;
-            this.horizon = weightData.horizon;
+    async loadWeights() {
+        try {
+            // Check if weights exist
+            const modelArtifacts = localStorage.getItem('tensorflowjs_models/sp500-gru-model/model_info');
+            if (!modelArtifacts) {
+                return false;
+            }
+            
+            // Build model first
             this.buildModel();
+            
+            // Load weights
+            await this.model.load('localstorage://sp500-gru-model');
+            console.log('Model weights loaded successfully');
+            return true;
+        } catch (error) {
+            console.error('Failed to load model weights:', error);
+            return false;
         }
-        
-        const weights = weightData.weights.map(w => 
-            tf.tensor(w.data, w.shape)
-        );
-        
-        this.model.setWeights(weights);
-        this.isTrained = true;
-        
-        // Dispose temporary tensors
-        weights.forEach(w => w.dispose());
     }
 
     /**
-     * Dispose model and free memory
+     * Get model summary
+     * @returns {Object} - Model information
+     */
+    getModelInfo() {
+        if (!this.model) {
+            return null;
+        }
+        
+        const trainableParams = this.model.trainableWeights
+            .map(w => w.shape.reduce((a, b) => a * b))
+            .reduce((a, b) => a + b, 0);
+        
+        return {
+            layers: this.model.layers.length,
+            trainableParams: trainableParams.toLocaleString(),
+            inputShape: this.inputShape,
+            outputShape: this.outputShape
+        };
+    }
+
+    /**
+     * Clean up model and tensors
      */
     dispose() {
         if (this.model) {
             this.model.dispose();
             this.model = null;
         }
-        this.isTrained = false;
-        this.history = null;
+        this.isTraining = false;
+        this.trainingHistory = {
+            loss: [],
+            valLoss: [],
+            accuracy: [],
+            valAccuracy: [],
+            epochs: []
+        };
     }
 }
 
-export default GRUModel;
+// Export singleton instance
+export const gruModel = new GRUModel();
