@@ -107,6 +107,10 @@
             color: var(--rose-500);
         }
 
+        .file-section {
+            margin-bottom: 25px;
+        }
+
         .file-upload-area {
             border: 3px dashed var(--rose-700);
             border-radius: 12px;
@@ -135,6 +139,22 @@
 
         .file-input {
             display: none;
+        }
+
+        .preloaded-data {
+            background: rgba(159, 18, 57, 0.1);
+            border: 2px solid var(--rose-700);
+            border-radius: 12px;
+            padding: 25px;
+            margin-top: 20px;
+        }
+
+        .preloaded-data h4 {
+            color: var(--rose-400);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
         .button {
@@ -167,6 +187,10 @@
 
         .button.secondary {
             background: linear-gradient(135deg, var(--gray), var(--light-gray));
+        }
+
+        .button.download {
+            background: linear-gradient(135deg, var(--rose-500), var(--rose-300));
         }
 
         .controls {
@@ -372,6 +396,19 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        .sample-data-list {
+            list-style: none;
+            margin-top: 10px;
+        }
+
+        .sample-data-list li {
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.2);
+            margin-bottom: 8px;
+            border-radius: 6px;
+            border-left: 3px solid var(--rose-500);
+        }
     </style>
 </head>
 <body>
@@ -384,21 +421,37 @@
         <div class="main-content">
             <div class="panel">
                 <h2 class="panel-title"><i class="fas fa-database"></i> Data Loading</h2>
-                <div class="file-upload-area" id="dropArea">
-                    <i class="fas fa-cloud-upload-alt"></i>
-                    <h3>Upload Your CSV File</h3>
-                    <p>Drag & drop your S&P 500 data file or click to browse</p>
-                    <p><small>Expected format: Single column of daily closing prices</small></p>
-                    <input type="file" id="fileInput" class="file-input" accept=".csv">
-                </div>
                 
-                <div class="controls">
-                    <button id="loadDataBtn" class="button" disabled>
-                        <i class="fas fa-file-import"></i> Load & Prepare Data
-                    </button>
-                    <button id="viewDataBtn" class="button secondary" disabled>
-                        <i class="fas fa-table"></i> View Data Stats
-                    </button>
+                <div class="file-section">
+                    <div class="file-upload-area" id="dropArea">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <h3>Upload Your CSV File</h3>
+                        <p>Drag & drop your S&P 500 data file or click to browse</p>
+                        <p><small>Expected format: Single column of daily closing prices</small></p>
+                        <input type="file" id="fileInput" class="file-input" accept=".csv">
+                    </div>
+                    
+                    <div class="controls">
+                        <button id="loadDataBtn" class="button" disabled>
+                            <i class="fas fa-file-import"></i> Load & Prepare Data
+                        </button>
+                        <button id="viewDataBtn" class="button secondary" disabled>
+                            <i class="fas fa-table"></i> View Data Stats
+                        </button>
+                    </div>
+                </div>
+
+                <div class="preloaded-data">
+                    <h4><i class="fas fa-download"></i> Need Sample Data?</h4>
+                    <p>Download a sample S&P 500 CSV file to test the application:</p>
+                    <div class="controls">
+                        <button id="downloadSampleBtn" class="button download">
+                            <i class="fas fa-file-download"></i> Download Sample CSV
+                        </button>
+                    </div>
+                    <p style="margin-top: 15px; font-size: 0.9rem; color: var(--rose-300);">
+                        <i class="fas fa-info-circle"></i> The sample contains real S&P 500 historical data.
+                    </p>
                 </div>
 
                 <div class="progress-container" id="dataProgressContainer" style="display: none;">
