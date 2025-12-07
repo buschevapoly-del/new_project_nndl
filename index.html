@@ -4,324 +4,511 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stock Predictor - Browser GRU Demo</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@latest"></script>
+    <title>S&P 500 Stock Predictor</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@1.5.1/dist/tfjs-vis.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
     <style>
         :root {
-            --rose: #e11d48;
-            --rose-light: #fecdd3;
-            --rose-dark: #be123c;
-            --black: #0f172a;
-            --gray: #334155;
-            --light-gray: #e2e8f0;
-            --white: #f8fafc;
+            --rose-50: #fff1f2;
+            --rose-100: #ffe4e6;
+            --rose-200: #fecdd3;
+            --rose-300: #fda4af;
+            --rose-400: #fb7185;
+            --rose-500: #f43f5e;
+            --rose-600: #e11d48;
+            --rose-700: #be123c;
+            --rose-800: #9f1239;
+            --rose-900: #881337;
+            --black: #000000;
+            --dark-gray: #1a1a1a;
+            --gray: #333333;
+            --light-gray: #666666;
+            --white: #ffffff;
         }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, sans-serif;
         }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background-color: var(--black);
+            background: linear-gradient(135deg, var(--black) 0%, var(--dark-gray) 100%);
             color: var(--white);
-            line-height: 1.6;
-            padding: 20px;
             min-height: 100vh;
+            padding: 20px;
         }
+
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }
+
         header {
             text-align: center;
+            padding: 30px 0;
+            border-bottom: 2px solid var(--rose-700);
             margin-bottom: 40px;
-            padding-bottom: 20px;
-            border-bottom: 2px solid var(--rose);
         }
+
         h1 {
-            color: var(--rose-light);
-            font-size: 2.5rem;
+            font-size: 2.8rem;
+            background: linear-gradient(90deg, var(--rose-400), var(--rose-600));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
             margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
+
         .subtitle {
-            color: var(--light-gray);
-            font-size: 1.1rem;
+            font-size: 1.2rem;
+            color: var(--rose-300);
+            margin-bottom: 20px;
         }
-        .card {
-            background: var(--gray);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(225, 29, 72, 0.2);
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
         }
-        .card-title {
-            color: var(--rose-light);
+
+        @media (max-width: 1100px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: rgba(30, 30, 30, 0.9);
+            border-radius: 16px;
+            padding: 25px;
+            border: 1px solid var(--gray);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+        }
+
+        .panel-title {
             font-size: 1.5rem;
-            margin-bottom: 16px;
+            color: var(--rose-400);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--rose-800);
             display: flex;
             align-items: center;
             gap: 10px;
         }
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
+
+        .panel-title i {
+            color: var(--rose-500);
         }
-        @media (max-width: 768px) {
-            .grid {
-                grid-template-columns: 1fr;
-            }
-        }
-        .btn {
-            background: linear-gradient(135deg, var(--rose), var(--rose-dark));
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
+
+        .file-upload-area {
+            border: 3px dashed var(--rose-700);
+            border-radius: 12px;
+            padding: 40px 20px;
+            text-align: center;
+            transition: all 0.3s;
             cursor: pointer;
-            transition: all 0.3s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
+            margin-bottom: 20px;
         }
-        .btn:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(225, 29, 72, 0.4);
+
+        .file-upload-area:hover {
+            background: rgba(244, 63, 94, 0.05);
+            border-color: var(--rose-500);
         }
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
+
+        .file-upload-area i {
+            font-size: 3rem;
+            color: var(--rose-500);
+            margin-bottom: 15px;
         }
-        .btn-secondary {
-            background: var(--gray);
-            border: 1px solid var(--rose);
+
+        .file-upload-area h3 {
+            margin-bottom: 10px;
+            color: var(--rose-300);
         }
+
         .file-input {
             display: none;
         }
-        .file-label {
-            display: inline-block;
-            padding: 12px 24px;
-            background: var(--gray);
-            border: 2px dashed var(--rose);
-            border-radius: 8px;
+
+        .button {
+            background: linear-gradient(135deg, var(--rose-600), var(--rose-800));
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
             cursor: pointer;
-            text-align: center;
-            transition: all 0.3s ease;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 4px 12px rgba(244, 63, 94, 0.3);
         }
-        .file-label:hover {
-            background: rgba(225, 29, 72, 0.1);
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(244, 63, 94, 0.5);
         }
+
+        .button:disabled {
+            background: var(--light-gray);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .button.secondary {
+            background: linear-gradient(135deg, var(--gray), var(--light-gray));
+        }
+
         .controls {
             display: flex;
-            gap: 12px;
             flex-wrap: wrap;
-            margin-bottom: 20px;
+            gap: 15px;
+            margin-top: 25px;
         }
+
+        .progress-container {
+            margin-top: 25px;
+        }
+
         .progress-bar {
-            height: 8px;
+            height: 12px;
             background: var(--gray);
-            border-radius: 4px;
+            border-radius: 6px;
             overflow: hidden;
-            margin-top: 20px;
+            margin-bottom: 10px;
         }
+
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, var(--rose), var(--rose-light));
-            transition: width 0.3s ease;
+            background: linear-gradient(90deg, var(--rose-500), var(--rose-300));
+            border-radius: 6px;
+            transition: width 0.5s ease;
         }
-        .status {
-            margin-top: 12px;
-            color: var(--rose-light);
+
+        .progress-text {
+            display: flex;
+            justify-content: space-between;
             font-size: 0.9rem;
-            min-height: 1.2em;
+            color: var(--rose-200);
         }
-        .chart-container {
-            position: relative;
-            height: 400px;
-            margin-top: 20px;
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 25px;
         }
-        .future-predictions {
+
+        .metric-box {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            border: 1px solid var(--rose-900);
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--rose-400);
+            margin-bottom: 5px;
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            color: var(--rose-300);
+        }
+
+        .predictions {
+            margin-top: 25px;
+        }
+
+        .prediction-cards {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
-            gap: 12px;
-            margin-top: 20px;
+            gap: 15px;
+            margin-top: 15px;
         }
+
+        @media (max-width: 1200px) {
+            .prediction-cards {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .prediction-cards {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 480px) {
+            .prediction-cards {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .prediction-card {
+            background: linear-gradient(135deg, rgba(244, 63, 94, 0.1), rgba(225, 29, 72, 0.2));
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid var(--rose-800);
+        }
+
         .prediction-day {
-            background: rgba(225, 29, 72, 0.1);
-            border: 1px solid var(--rose);
-            border-radius: 8px;
-            padding: 16px;
-            text-align: center;
+            font-size: 1.2rem;
+            color: var(--rose-300);
+            margin-bottom: 10px;
         }
+
         .prediction-value {
-            font-size: 1.5rem;
+            font-size: 1.8rem;
             font-weight: bold;
-            color: var(--rose-light);
-            margin-top: 8px;
+            color: var(--rose-400);
         }
-        .confusion-matrix {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1px;
-            background: var(--light-gray);
-            margin-top: 20px;
+
+        .prediction-direction {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            padding: 5px 10px;
+            border-radius: 20px;
+            display: inline-block;
         }
-        .matrix-cell {
-            background: var(--black);
-            padding: 12px;
-            text-align: center;
+
+        .direction-up {
+            background: rgba(72, 187, 120, 0.2);
+            color: #48bb78;
+        }
+
+        .direction-down {
+            background: rgba(245, 101, 101, 0.2);
+            color: #f56565;
+        }
+
+        .charts-container {
+            margin-top: 40px;
+        }
+
+        .chart-box {
+            background: rgba(30, 30, 30, 0.9);
+            border-radius: 16px;
+            padding: 25px;
+            margin-bottom: 30px;
             border: 1px solid var(--gray);
         }
-        .matrix-header {
-            background: var(--rose-dark);
-            font-weight: bold;
+
+        .chart-title {
+            font-size: 1.3rem;
+            color: var(--rose-400);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
-        .positive { color: #4ade80; }
-        .negative { color: #f87171; }
-        .icon {
+
+        canvas {
+            width: 100% !important;
+            height: 400px !important;
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px 0;
+            border-top: 1px solid var(--gray);
+            margin-top: 40px;
+            color: var(--rose-300);
+            font-size: 0.9rem;
+        }
+
+        .status-message {
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .status-success {
+            background: rgba(72, 187, 120, 0.1);
+            border: 1px solid #48bb78;
+            color: #48bb78;
+            display: block;
+        }
+
+        .status-error {
+            background: rgba(245, 101, 101, 0.1);
+            border: 1px solid #f56565;
+            color: #f56565;
+            display: block;
+        }
+
+        .status-info {
+            background: rgba(66, 153, 225, 0.1);
+            border: 1px solid #4299e1;
+            color: #4299e1;
+            display: block;
+        }
+
+        .loading {
+            display: inline-block;
             width: 20px;
             height: 20px;
+            border: 3px solid var(--rose-300);
+            border-radius: 50%;
+            border-top-color: var(--rose-600);
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Stock Predictor</h1>
-            <p class="subtitle">Browser-based GRU Model for S&P 500 Predictions</p>
+            <h1><i class="fas fa-chart-line"></i> S&P 500 Stock Predictor</h1>
+            <p class="subtitle">AI-powered market forecasting using TensorFlow.js GRU model</p>
         </header>
 
-        <div class="grid">
-            <div>
-                <div class="card">
-                    <h2 class="card-title">
-                        📁 Data Input
-                    </h2>
-                    <p>Upload your S&P 500 CSV file with daily prices</p>
-                    <input type="file" id="csvFile" class="file-input" accept=".csv">
-                    <label for="csvFile" class="file-label" id="fileLabel">
-                        Choose CSV File
-                    </label>
-                    <div id="fileInfo" style="margin-top: 12px; color: var(--rose-light);"></div>
+        <div class="main-content">
+            <div class="panel">
+                <h2 class="panel-title"><i class="fas fa-database"></i> Data Loading</h2>
+                <div class="file-upload-area" id="dropArea">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <h3>Upload Your CSV File</h3>
+                    <p>Drag & drop your S&P 500 data file or click to browse</p>
+                    <p><small>Expected format: Single column of daily closing prices</small></p>
+                    <input type="file" id="fileInput" class="file-input" accept=".csv">
+                </div>
+                
+                <div class="controls">
+                    <button id="loadDataBtn" class="button" disabled>
+                        <i class="fas fa-file-import"></i> Load & Prepare Data
+                    </button>
+                    <button id="viewDataBtn" class="button secondary" disabled>
+                        <i class="fas fa-table"></i> View Data Stats
+                    </button>
                 </div>
 
-                <div class="card">
-                    <h2 class="card-title">
-                        ⚙️ Model Configuration
-                    </h2>
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; margin-bottom: 8px;">Lookback Window (days):</label>
-                        <input type="number" id="lookback" value="60" min="10" max="120" 
-                               style="width: 100%; padding: 8px; background: var(--black); 
-                                      border: 1px solid var(--rose); color: white; border-radius: 4px;">
-                    </div>
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; margin-bottom: 8px;">Prediction Horizon (days):</label>
-                        <input type="number" id="horizon" value="5" min="1" max="10"
-                               style="width: 100%; padding: 8px; background: var(--black); 
-                                      border: 1px solid var(--rose); color: white; border-radius: 4px;">
-                    </div>
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; margin-bottom: 8px;">Epochs:</label>
-                        <input type="number" id="epochs" value="50" min="10" max="200"
-                               style="width: 100%; padding: 8px; background: var(--black); 
-                                      border: 1px solid var(--rose); color: white; border-radius: 4px;">
-                    </div>
-                </div>
-
-                <div class="card">
-                    <h2 class="card-title">
-                        🎯 Training Control
-                    </h2>
-                    <div class="controls">
-                        <button id="trainBtn" class="btn">
-                            🚀 Train Model
-                        </button>
-                        <button id="predictBtn" class="btn" disabled>
-                            🔮 Predict Future
-                        </button>
-                        <button id="resetBtn" class="btn btn-secondary">
-                            🔄 Reset
-                        </button>
-                    </div>
+                <div class="progress-container" id="dataProgressContainer" style="display: none;">
                     <div class="progress-bar">
-                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                        <div class="progress-fill" id="dataProgressFill"></div>
                     </div>
-                    <div class="status" id="status">
-                        Ready to load data
+                    <div class="progress-text">
+                        <span id="dataProgressText">0%</span>
+                        <span id="dataStatusText">Waiting...</span>
                     </div>
                 </div>
+
+                <div id="dataStatus" class="status-message"></div>
             </div>
 
-            <div>
-                <div class="card">
-                    <h2 class="card-title">
-                        📊 Future Predictions (Next 5 Days)
-                    </h2>
-                    <div id="futurePredictions" class="future-predictions">
-                        <div class="prediction-day">
-                            <div>Day +1</div>
-                            <div class="prediction-value">-</div>
-                        </div>
-                        <div class="prediction-day">
-                            <div>Day +2</div>
-                            <div class="prediction-value">-</div>
-                        </div>
-                        <div class="prediction-day">
-                            <div>Day +3</div>
-                            <div class="prediction-value">-</div>
-                        </div>
-                        <div class="prediction-day">
-                            <div>Day +4</div>
-                            <div class="prediction-value">-</div>
-                        </div>
-                        <div class="prediction-day">
-                            <div>Day +5</div>
-                            <div class="prediction-value">-</div>
-                        </div>
+            <div class="panel">
+                <h2 class="panel-title"><i class="fas fa-brain"></i> Model Training</h2>
+                <div class="metrics">
+                    <div class="metric-box">
+                        <div class="metric-value" id="trainLoss">-</div>
+                        <div class="metric-label">Training Loss</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-value" id="valLoss">-</div>
+                        <div class="metric-label">Validation Loss</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-value" id="trainAcc">-</div>
+                        <div class="metric-label">Train Accuracy</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-value" id="valAcc">-</div>
+                        <div class="metric-label">Val Accuracy</div>
                     </div>
                 </div>
 
-                <div class="card">
-                    <h2 class="card-title">
-                        📈 Prediction Results
-                    </h2>
-                    <div class="chart-container">
-                        <canvas id="predictionChart"></canvas>
+                <div class="controls">
+                    <button id="trainBtn" class="button" disabled>
+                        <i class="fas fa-play-circle"></i> Train Model
+                    </button>
+                    <button id="stopTrainBtn" class="button secondary" disabled>
+                        <i class="fas fa-stop-circle"></i> Stop Training
+                    </button>
+                    <button id="predictBtn" class="button" disabled>
+                        <i class="fas fa-crystal-ball"></i> Make Predictions
+                    </button>
+                </div>
+
+                <div class="progress-container" id="trainProgressContainer" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="trainProgressFill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="trainProgressText">0%</span>
+                        <span id="trainStatusText">Waiting...</span>
                     </div>
                 </div>
 
-                <div class="card">
-                    <h2 class="card-title">
-                        📋 Model Performance
-                    </h2>
-                    <div id="performanceMetrics" style="margin-bottom: 20px;">
-                        <div>Accuracy: <span id="accuracy">-</span></div>
-                        <div>Loss: <span id="loss">-</span></div>
-                        <div>Test MSE: <span id="testMse">-</span></div>
+                <div id="trainStatus" class="status-message"></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2 class="panel-title"><i class="fas fa-chart-bar"></i> Next 5 Days Predictions</h2>
+            <div class="predictions">
+                <div class="prediction-cards" id="predictionCards">
+                    <div class="prediction-card">
+                        <div class="prediction-day">Day 1</div>
+                        <div class="prediction-value">-</div>
+                        <div class="prediction-direction direction-up">Loading...</div>
                     </div>
-                    <h3 style="margin-top: 20px; color: var(--rose-light);">Confusion Matrix</h3>
-                    <div id="confusionMatrix" class="confusion-matrix">
-                        <div class="matrix-cell matrix-header"></div>
-                        <div class="matrix-cell matrix-header">Predicted Up</div>
-                        <div class="matrix-cell matrix-header">Predicted Down</div>
-                        <div class="matrix-cell matrix-header">Actual Up</div>
-                        <div class="matrix-cell" id="tp">-</div>
-                        <div class="matrix-cell" id="fn">-</div>
-                        <div class="matrix-cell matrix-header">Actual Down</div>
-                        <div class="matrix-cell" id="fp">-</div>
-                        <div class="matrix-cell" id="tn">-</div>
+                    <div class="prediction-card">
+                        <div class="prediction-day">Day 2</div>
+                        <div class="prediction-value">-</div>
+                        <div class="prediction-direction direction-up">Loading...</div>
+                    </div>
+                    <div class="prediction-card">
+                        <div class="prediction-day">Day 3</div>
+                        <div class="prediction-value">-</div>
+                        <div class="prediction-direction direction-up">Loading...</div>
+                    </div>
+                    <div class="prediction-card">
+                        <div class="prediction-day">Day 4</div>
+                        <div class="prediction-value">-</div>
+                        <div class="prediction-direction direction-up">Loading...</div>
+                    </div>
+                    <div class="prediction-card">
+                        <div class="prediction-day">Day 5</div>
+                        <div class="prediction-value">-</div>
+                        <div class="prediction-direction direction-up">Loading...</div>
                     </div>
                 </div>
             </div>
         </div>
+
+        <div class="charts-container">
+            <div class="chart-box">
+                <h3 class="chart-title"><i class="fas fa-chart-line"></i> Price & Prediction History</h3>
+                <canvas id="priceChart"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3 class="chart-title"><i class="fas fa-project-diagram"></i> Model Performance</h3>
+                <canvas id="performanceChart"></canvas>
+            </div>
+        </div>
+
+        <footer>
+            <p>S&P 500 Stock Predictor | Browser-based AI Forecasting with TensorFlow.js</p>
+            <p>All processing happens locally in your browser. No data is sent to any server.</p>
+        </footer>
     </div>
 
     <script type="module" src="data-loader.js"></script>
