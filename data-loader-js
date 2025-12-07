@@ -1,272 +1,223 @@
 // data-loader.js
-const fs = require('fs');
-const path = require('path');
-const csv = require('csv-parser');
-const https = require('https');
-const fetch = require('node-fetch'); // Для использования fetch в Node.js
-
 /**
- * Загружает файл с GitHub Raw URL
- * @param {string} githubUrl - GitHub Raw URL
- * @returns {Promise<string>} - Содержимое файла
+ * Data Loader Module
+ * Handles CSV parsing, normalization, and dataset preparation for S&P 500 stock data
  */
-async function loadFromGitHub(githubUrl) {
-  try {
-    console.log(`Загрузка данных из GitHub: ${githubUrl}`);
-    
-    // Преобразуем GitHub URL в raw URL если нужно
-    let rawUrl = githubUrl;
-    if (githubUrl.includes('github.com') && !githubUrl.includes('raw.githubusercontent.com')) {
-      rawUrl = githubUrl
-        .replace('github.com', 'raw.githubusercontent.com')
-        .replace('/blob/', '/');
+
+class DataLoader {
+    constructor() {
+        this.rawData = null;
+        this.normalizedData = null;
+        this.min = 0;
+        this.max = 0;
+        this.X_train = null;
+        this.y_train = null;
+        this.X_test = null;
+        this.y_test = null;
+        this.trainSize = 0.8; // 80% training, 20% testing
+        this.windowSize = 60; // 60-day window
+        this.forecastDays = 5; // Predict next 5 days
     }
-    
-    const response = await fetch(rawUrl);
-    
-    if (!response.ok) {
-      throw new Error(`Ошибка загрузки: ${response.status} ${response.statusText}`);
-    }
-    
-    return await response.text();
-  } catch (error) {
-    throw new Error(`Ошибка загрузки с GitHub: ${error.message}`);
-  }
-}
 
-/**
- * Загружает данные из локального файла
- * @param {string} filePath - Путь к файлу
- * @returns {Promise<string>} - Содержимое файла
- */
-function loadFromLocal(filePath) {
-  return new Promise((resolve, reject) => {
-    fs.readFile(filePath, 'utf8', (err, data) => {
-      if (err) reject(err);
-      else resolve(data);
-    });
-  });
-}
+    /**
+     * Load and parse CSV file from file input
+     * @param {File} file - CSV file object
+     * @returns {Promise<Array>} - Parsed data array
+     */
+    async loadCSV(file) {
+        return new Promise((resolve, reject) => {
+            if (!file) {
+                reject(new Error('No file provided'));
+                return;
+            }
 
-/**
- * Парсит CSV данные
- * @param {string} csvData - CSV данные в виде строки
- * @param {Object} options - Опции парсинга
- * @returns {Promise<Array>} - Массив объектов с данными
- */
-async function parseCSVData(csvData, options = {}) {
-  return new Promise((resolve, reject) => {
-    const results = [];
-    let dateCounter = 0;
-    const startDate = new Date('2000-01-01');
-    
-    // Создаем поток из строки
-    const { Readable } = require('stream');
-    const stream = Readable.from(csvData);
-    
-    stream
-      .pipe(csv({
-        headers: false,
-        skipLines: 0
-      }))
-      .on('data', (data) => {
-        const value = data['0'];
-        
-        // Пропускаем строки с заголовком и пустые строки
-        if (value === '^GSPC' || value === '""' || !value || value.trim() === '') {
-          return;
-        }
-        
-        try {
-          const price = parseFloat(value);
-          
-          if (!isNaN(price)) {
-            const currentDate = new Date(startDate);
-            currentDate.setDate(startDate.getDate() + dateCounter);
-            dateCounter++;
+            const reader = new FileReader();
             
-            results.push({
-              date: currentDate.toISOString().split('T')[0],
-              price: price,
-              timestamp: currentDate.getTime()
-            });
-          }
-        } catch (error) {
-          console.warn(`Ошибка обработки строки: ${value}`, error);
+            reader.onload = (event) => {
+                try {
+                    const content = event.target.result;
+                    // Parse CSV content (assuming single column of prices)
+                    const lines = content.split('\n').filter(line => line.trim() !== '');
+                    
+                    // Remove possible header and empty values
+                    const prices = lines.map(line => {
+                        // Handle quoted values and empty strings
+                        const val = line.replace(/"/g, '').trim();
+                        return val && !isNaN(parseFloat(val)) ? parseFloat(val) : null;
+                    }).filter(val => val !== null);
+                    
+                    if (prices.length === 0) {
+                        reject(new Error('No valid numeric data found in CSV'));
+                        return;
+                    }
+                    
+                    this.rawData = prices;
+                    resolve(prices);
+                } catch (error) {
+                    reject(new Error(`CSV parsing error: ${error.message}`));
+                }
+            };
+            
+            reader.onerror = () => {
+                reject(new Error('Failed to read file'));
+            };
+            
+            reader.readAsText(file);
+        });
+    }
+
+    /**
+     * Normalize data using Min-Max scaling
+     * @param {Array} data - Raw price data
+     * @returns {Array} - Normalized data
+     */
+    normalizeData(data) {
+        if (!data || data.length === 0) {
+            throw new Error('No data to normalize');
         }
-      })
-      .on('end', () => {
-        console.log(`Парсинг завершен. Загружено ${results.length} записей`);
-        resolve(results);
-      })
-      .on('error', (error) => {
-        reject(error);
-      });
-  });
-}
-
-/**
- * Фильтрует данные, оставляя только один показатель за день
- */
-function filterDailyData(data) {
-  const dailyMap = new Map();
-  
-  data.forEach(item => {
-    dailyMap.set(item.date, item);
-  });
-  
-  return Array.from(dailyMap.values()).sort((a, b) => a.timestamp - b.timestamp);
-}
-
-/**
- * Создает сгруппированные данные по месяцам
- */
-function createMonthlyData(data) {
-  const monthlyMap = new Map();
-  
-  data.forEach(item => {
-    const date = new Date(item.date);
-    const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    
-    if (!monthlyMap.has(yearMonth)) {
-      monthlyMap.set(yearMonth, {
-        date: `${yearMonth}-01`,
-        open: item.price,
-        high: item.price,
-        low: item.price,
-        close: item.price,
-        volume: 0,
-        count: 1
-      });
-    } else {
-      const monthData = monthlyMap.get(yearMonth);
-      monthData.high = Math.max(monthData.high, item.price);
-      monthData.low = Math.min(monthData.low, item.price);
-      monthData.close = item.price;
-      monthData.count++;
+        
+        this.min = Math.min(...data);
+        this.max = Math.max(...data);
+        
+        // Avoid division by zero
+        const range = this.max - this.min || 1;
+        
+        this.normalizedData = data.map(price => (price - this.min) / range);
+        return this.normalizedData;
     }
-  });
-  
-  return Array.from(monthlyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
-}
 
-/**
- * Основная функция загрузки данных
- * @param {string} source - Путь к файлу или GitHub URL
- * @param {Object} options - Опции загрузки
- * @param {boolean} options.monthly - Группировать по месяцам
- * @returns {Promise<Array>}
- */
-async function loadData(source, options = { monthly: false }) {
-  try {
-    let csvData;
-    
-    // Определяем источник данных
-    if (source.startsWith('http') && source.includes('github')) {
-      // Загрузка с GitHub
-      csvData = await loadFromGitHub(source);
-    } else {
-      // Загрузка локального файла
-      const fullPath = path.isAbsolute(source) 
-        ? source 
-        : path.join(process.cwd(), source);
-      
-      console.log(`Загрузка локального файла: ${fullPath}`);
-      
-      if (!fs.existsSync(fullPath)) {
-        throw new Error(`Файл не найден: ${fullPath}`);
-      }
-      
-      csvData = await loadFromLocal(fullPath);
+    /**
+     * Denormalize data back to original scale
+     * @param {Array} normalizedData - Normalized data
+     * @returns {Array} - Original scale data
+     */
+    denormalizeData(normalizedData) {
+        if (!this.min && !this.max) {
+            throw new Error('Normalization parameters not set');
+        }
+        
+        const range = this.max - this.min;
+        return normalizedData.map(val => val * range + this.min);
     }
-    
-    // Парсим CSV данные
-    const rawData = await parseCSVData(csvData);
-    
-    if (rawData.length === 0) {
-      throw new Error('Файл не содержит данных или имеет неправильный формат');
+
+    /**
+     * Create sequences for time series prediction
+     * @param {Array} data - Normalized data
+     * @param {number} windowSize - Size of input window
+     * @param {number} forecastDays - Number of days to predict
+     * @returns {Object} - X and y tensors
+     */
+    createSequences(data) {
+        if (data.length < this.windowSize + this.forecastDays) {
+            throw new Error(`Data too short. Need at least ${this.windowSize + this.forecastDays} days`);
+        }
+        
+        const X = [];
+        const y = [];
+        
+        for (let i = 0; i < data.length - this.windowSize - this.forecastDays + 1; i++) {
+            X.push(data.slice(i, i + this.windowSize));
+            y.push(data.slice(i + this.windowSize, i + this.windowSize + this.forecastDays));
+        }
+        
+        return { X, y };
     }
-    
-    console.log(`Первые 5 записей:`, rawData.slice(0, 5));
-    console.log(`Последние 5 записей:`, rawData.slice(-5));
-    
-    // Фильтруем для получения ежедневных данных
-    const dailyData = filterDailyData(rawData);
-    
-    if (options.monthly) {
-      const monthlyData = createMonthlyData(dailyData);
-      console.log(`Создано ${monthlyData.length} месячных записей`);
-      return monthlyData;
+
+    /**
+     * Prepare training and testing datasets
+     * @param {Array} rawData - Raw price data
+     * @returns {Object} - Training and testing tensors
+     */
+    prepareDatasets(rawData) {
+        // Normalize data
+        const normalizedData = this.normalizeData(rawData);
+        
+        // Create sequences
+        const { X, y } = this.createSequences(normalizedData);
+        
+        // Split into train and test sets
+        const splitIndex = Math.floor(X.length * this.trainSize);
+        
+        const X_train = X.slice(0, splitIndex);
+        const y_train = y.slice(0, splitIndex);
+        const X_test = X.slice(splitIndex);
+        const y_test = y.slice(splitIndex);
+        
+        // Convert to tensors
+        this.X_train = tf.tensor3d(X_train, [X_train.length, this.windowSize, 1]);
+        this.y_train = tf.tensor2d(y_train, [y_train.length, this.forecastDays]);
+        this.X_test = tf.tensor3d(X_test, [X_test.length, this.windowSize, 1]);
+        this.y_test = tf.tensor2d(y_test, [y_test.length, this.forecastDays]);
+        
+        return {
+            X_train: this.X_train,
+            y_train: this.y_train,
+            X_test: this.X_test,
+            y_test: this.y_test,
+            trainSize: X_train.length,
+            testSize: X_test.length
+        };
     }
-    
-    console.log(`Получено ${dailyData.length} уникальных дневных записей`);
-    return dailyData;
-    
-  } catch (error) {
-    console.error('Ошибка загрузки данных:', error.message);
-    throw error;
-  }
+
+    /**
+     * Get the latest window for prediction
+     * @returns {tf.Tensor} - Latest window tensor
+     */
+    getLatestWindow() {
+        if (!this.normalizedData) {
+            throw new Error('Data not loaded');
+        }
+        
+        const latestWindow = this.normalizedData.slice(-this.windowSize);
+        return tf.tensor3d([latestWindow], [1, this.windowSize, 1]);
+    }
+
+    /**
+     * Calculate returns from prices
+     * @param {Array} prices - Price data
+     * @returns {Array} - Returns data
+     */
+    calculateReturns(prices) {
+        const returns = [];
+        for (let i = 1; i < prices.length; i++) {
+            returns.push((prices[i] - prices[i-1]) / prices[i-1]);
+        }
+        return returns;
+    }
+
+    /**
+     * Clean up tensors to free memory
+     */
+    dispose() {
+        if (this.X_train) this.X_train.dispose();
+        if (this.y_train) this.y_train.dispose();
+        if (this.X_test) this.X_test.dispose();
+        if (this.y_test) this.y_test.dispose();
+    }
+
+    /**
+     * Get dataset statistics
+     * @returns {Object} - Dataset statistics
+     */
+    getStats() {
+        if (!this.rawData) {
+            return null;
+        }
+        
+        const returns = this.calculateReturns(this.rawData);
+        
+        return {
+            totalDays: this.rawData.length,
+            trainSamples: this.X_train ? this.X_train.shape[0] : 0,
+            testSamples: this.X_test ? this.X_test.shape[0] : 0,
+            minPrice: Math.min(...this.rawData).toFixed(2),
+            maxPrice: Math.max(...this.rawData).toFixed(2),
+            meanPrice: (this.rawData.reduce((a, b) => a + b, 0) / this.rawData.length).toFixed(2),
+            meanReturn: (returns.reduce((a, b) => a + b, 0) / returns.length * 100).toFixed(3),
+            volatility: (Math.sqrt(returns.reduce((sq, n) => sq + n * n, 0) / returns.length) * 100).toFixed(3)
+        };
+    }
 }
 
-/**
- * Сохраняет данные в JSON файл
- */
-function saveDataToJson(data, outputPath) {
-  const fullOutputPath = path.isAbsolute(outputPath)
-    ? outputPath
-    : path.join(process.cwd(), outputPath);
-  
-  const dir = path.dirname(fullOutputPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  
-  fs.writeFileSync(fullOutputPath, JSON.stringify(data, null, 2), 'utf8');
-  console.log(`Данные сохранены в: ${fullOutputPath}`);
-}
-
-/**
- * Пример работы с конкретным GitHub URL
- */
-async function loadFromSpecificGitHub() {
-  const githubUrl = 'https://github.com/buschevapoly-del/new_project_nndl/blob/97648cb37fafc348b073c1085c7c31df779e97dd/my_data.csv';
-  
-  try {
-    console.log('Загрузка данных с конкретного GitHub репозитория...');
-    const data = await loadData(githubUrl);
-    console.log(`Успешно загружено ${data.length} записей`);
-    return data;
-  } catch (error) {
-    console.error('Ошибка:', error.message);
-    throw error;
-  }
-}
-
-// Экспорт функций
-module.exports = {
-  loadData,
-  loadFromGitHub,
-  parseCSVData,
-  filterDailyData,
-  createMonthlyData,
-  saveDataToJson,
-  loadFromSpecificGitHub
-};
-
-// Пример использования (если файл запускается напрямую)
-if (require.main === module) {
-  const args = process.argv.slice(2);
-  const source = args[0] || 'https://github.com/buschevapoly-del/new_project_nndl/blob/97648cb37fafc348b073c1085c7c31df779e97dd/my_data.csv';
-  const outputPath = args[1] || './historical-data.json';
-  const isMonthly = args.includes('--monthly');
-  
-  loadData(source, { monthly: isMonthly })
-    .then(data => {
-      saveDataToJson(data, outputPath);
-      console.log('Готово!');
-    })
-    .catch(error => {
-      console.error('Ошибка:', error);
-      process.exit(1);
-    });
-}
+// Export singleton instance
+export const dataLoader = new DataLoader();
