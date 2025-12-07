@@ -1,22 +1,18 @@
 // data-loader.js
 /**
- * Data Loader Module
- * Handles CSV parsing, normalization, and dataset preparation for S&P 500 stock data
+ * Data Loader Module for S&P 500 Index
+ * Handles CSV parsing, normalization, and dataset preparation
  */
 
 class DataLoader {
     constructor() {
-        this.rawData = null;
-        this.normalizedData = null;
-        this.min = 0;
-        this.max = 0;
-        this.X_train = null;
-        this.y_train = null;
-        this.X_test = null;
-        this.y_test = null;
-        this.trainSize = 0.8; // 80% training, 20% testing
-        this.windowSize = 60; // 60-day window
+        this.data = null;
+        this.featureColumns = [];
+        this.targetColumn = 'Close'; // S&P 500 closing price
+        this.sequenceLength = 60; // 60-day window
         this.forecastDays = 5; // Predict next 5 days
+        this.trainTestSplit = 0.8;
+        this.normalizationParams = {};
     }
 
     /**
@@ -33,74 +29,137 @@ class DataLoader {
 
             const reader = new FileReader();
             
-            reader.onload = (event) => {
+            reader.onload = (e) => {
                 try {
-                    const content = event.target.result;
-                    console.log('CSV content length:', content.length);
-                    
-                    // Parse CSV content (assuming single column of prices)
-                    const lines = content.split('\n').filter(line => line.trim() !== '');
-                    
-                    // Remove possible header and empty values
-                    const prices = [];
-                    for (let line of lines) {
-                        // Handle quoted values and empty strings
-                        const cleaned = line.replace(/"/g, '').replace(/'/g, '').trim();
-                        if (cleaned === '') continue;
-                        
-                        // Handle the special character at the beginning
-                        const cleanLine = cleaned.replace(/^[^0-9.-]+/, '');
-                        const val = parseFloat(cleanLine);
-                        
-                        if (!isNaN(val) && isFinite(val) && val > 0) {
-                            prices.push(val);
-                        }
-                    }
-                    
-                    console.log('Parsed prices:', prices.length, 'records');
-                    
-                    if (prices.length === 0) {
-                        reject(new Error('No valid numeric data found in CSV'));
-                        return;
-                    }
-                    
-                    this.rawData = prices;
-                    resolve(prices);
+                    const csvData = e.target.result;
+                    this.parseCSV(csvData);
+                    console.log(`Loaded ${this.data.length} rows with features: ${this.featureColumns.join(', ')}`);
+                    resolve(this.data);
                 } catch (error) {
                     console.error('CSV parsing error:', error);
-                    reject(new Error(`CSV parsing error: ${error.message}`));
+                    reject(error);
                 }
             };
             
-            reader.onerror = () => {
-                reject(new Error('Failed to read file'));
-            };
-            
+            reader.onerror = () => reject(new Error('Failed to read file'));
             reader.readAsText(file);
         });
     }
 
     /**
-     * Generate sample CSV data for testing
+     * Parse CSV data and extract features
+     * @param {string} csvText - CSV content
+     */
+    parseCSV(csvText) {
+        console.log('Parsing CSV data...');
+        
+        const lines = csvText.trim().split('\n').filter(line => line.trim() !== '');
+        if (lines.length < 2) {
+            throw new Error('CSV file is empty or has only headers');
+        }
+
+        // Handle headers - try comma separation first
+        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        
+        // If we only have one column, it's likely just prices
+        if (headers.length === 1) {
+            console.log('Single column detected - assuming price data only');
+            this.featureColumns = ['Close'];
+            
+            const rows = [];
+            for (let i = 1; i < lines.length; i++) {
+                const value = parseFloat(lines[i].trim().replace(/"/g, ''));
+                if (!isNaN(value) && value > 0) {
+                    rows.push({
+                        'Close': value,
+                        'Date': `Day ${i}` // Generate placeholder dates
+                    });
+                }
+            }
+            
+            this.data = rows;
+            return;
+        }
+
+        // Multi-column CSV - identify feature columns
+        this.featureColumns = headers.filter(h => 
+            h !== 'Date' && 
+            h !== this.targetColumn && 
+            h.toLowerCase().includes('price') || 
+            h.toLowerCase().includes('close') ||
+            h.toLowerCase().includes('value')
+        );
+        
+        // If no feature columns found, use all numeric columns except Date
+        if (this.featureColumns.length === 0) {
+            this.featureColumns = headers.filter(h => h !== 'Date');
+        }
+        
+        console.log('Feature columns identified:', this.featureColumns);
+
+        // Parse data rows
+        const rows = [];
+        for (let i = 1; i < lines.length; i++) {
+            const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+            const row = {};
+            
+            headers.forEach((header, index) => {
+                if (index < values.length) {
+                    const val = values[index];
+                    const numVal = parseFloat(val);
+                    // Use numeric value if valid, otherwise use the string
+                    row[header] = !isNaN(numVal) ? numVal : val;
+                }
+            });
+            
+            // Make sure we have the target column
+            if (!row.hasOwnProperty(this.targetColumn) && this.featureColumns.length > 0) {
+                row[this.targetColumn] = row[this.featureColumns[0]];
+            }
+            
+            rows.push(row);
+        }
+        
+        this.data = rows;
+        console.log(`Parsed ${rows.length} data rows`);
+    }
+
+    /**
+     * Generate sample CSV data for S&P 500
      * @returns {string} - Sample CSV content
      */
     generateSampleCSV() {
-        // Generate sample S&P 500 data (last 1000 trading days)
-        const startPrice = 4000;
-        const volatility = 0.015;
-        const drift = 0.0002;
+        // Generate realistic S&P 500 data (last 1000 trading days)
+        let startPrice = 4000;
+        let volatility = 0.015;
+        let drift = 0.0001;
         
-        let prices = [startPrice];
+        let csvContent = "Date,Open,High,Low,Close,Volume\n";
         
-        for (let i = 1; i < 1000; i++) {
-            const randomChange = (Math.random() - 0.5) * 2 * volatility;
-            const trend = drift * i;
-            const newPrice = prices[i-1] * (1 + randomChange + trend);
-            prices.push(Math.round(newPrice * 100) / 100);
+        let currentDate = new Date();
+        currentDate.setDate(currentDate.getDate() - 1000);
+        
+        for (let i = 0; i < 1000; i++) {
+            const dateStr = currentDate.toISOString().split('T')[0];
+            const open = startPrice;
+            
+            // Generate price movement
+            const dailyReturn = (Math.random() - 0.5) * 2 * volatility + drift;
+            const close = open * (1 + dailyReturn);
+            const high = Math.max(open, close) * (1 + Math.random() * 0.01);
+            const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+            const volume = Math.floor(Math.random() * 1000000) + 500000;
+            
+            csvContent += `${dateStr},${open.toFixed(2)},${high.toFixed(2)},${low.toFixed(2)},${close.toFixed(2)},${volume}\n`;
+            
+            startPrice = close;
+            currentDate.setDate(currentDate.getDate() + 1);
+            
+            // Skip weekends
+            if (currentDate.getDay() === 0) currentDate.setDate(currentDate.getDate() + 1);
+            if (currentDate.getDay() === 6) currentDate.setDate(currentDate.getDate() + 2);
         }
         
-        // Format as CSV
-        const csvContent = prices.map(price => price.toString()).join('\n');
         return csvContent;
     }
 
@@ -119,104 +178,133 @@ class DataLoader {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        
+        console.log('Sample CSV downloaded');
     }
 
     /**
-     * Normalize data using Min-Max scaling
-     * @param {Array} data - Raw price data
-     * @returns {Array} - Normalized data
+     * Preprocess data for model training
+     * @returns {Object} - Processed datasets
      */
-    normalizeData(data) {
-        if (!data || data.length === 0) {
-            throw new Error('No data to normalize');
+    preprocessData() {
+        if (!this.data || this.data.length === 0) {
+            throw new Error('No data loaded');
         }
-        
-        this.min = Math.min(...data);
-        this.max = Math.max(...data);
-        
-        // Avoid division by zero
-        const range = this.max - this.min || 1;
-        
-        this.normalizedData = data.map(price => (price - this.min) / range);
-        return this.normalizedData;
-    }
 
-    /**
-     * Denormalize data back to original scale
-     * @param {Array} normalizedData - Normalized data
-     * @returns {Array} - Original scale data
-     */
-    denormalizeData(normalizedData) {
-        if (!this.min && !this.max) {
-            throw new Error('Normalization parameters not set');
-        }
-        
-        const range = this.max - this.min;
-        return normalizedData.map(val => val * range + this.min);
-    }
+        console.log(`Preprocessing ${this.data.length} data points...`);
 
-    /**
-     * Create sequences for time series prediction
-     * @param {Array} data - Normalized data
-     * @param {number} windowSize - Size of input window
-     * @param {number} forecastDays - Number of days to predict
-     * @returns {Object} - X and y tensors
-     */
-    createSequences(data) {
-        if (data.length < this.windowSize + this.forecastDays) {
-            throw new Error(`Data too short. Need at least ${this.windowSize + this.forecastDays} days`);
-        }
+        // Extract features and target
+        const features = this.featureColumns.map(col => 
+            this.data.map(row => row[col])
+        );
         
-        const X = [];
-        const y = [];
-        
-        for (let i = 0; i < data.length - this.windowSize - this.forecastDays + 1; i++) {
-            X.push(data.slice(i, i + this.windowSize));
-            y.push(data.slice(i + this.windowSize, i + this.windowSize + this.forecastDays));
-        }
-        
-        return { X, y };
-    }
+        const target = this.data.map(row => row[this.targetColumn]);
 
-    /**
-     * Prepare training and testing datasets
-     * @param {Array} rawData - Raw price data
-     * @returns {Object} - Training and testing tensors
-     */
-    prepareDatasets(rawData) {
+        console.log(`Features shape: ${features.length} x ${features[0].length}`);
+        console.log(`Target shape: ${target.length}`);
+
         // Normalize data
-        const normalizedData = this.normalizeData(rawData);
+        const normalizedFeatures = this.normalizeFeatures(features);
+        const normalizedTarget = this.normalizeArray(target, 'target');
+
+        // Create sequences for multi-day prediction
+        return this.createMultiDaySequences(normalizedFeatures, normalizedTarget);
+    }
+
+    /**
+     * Normalize feature arrays
+     * @param {Array} features - Array of feature arrays
+     * @returns {Array} - Normalized features
+     */
+    normalizeFeatures(features) {
+        return features.map((featureArray, index) => 
+            this.normalizeArray(featureArray, `feature_${index}`)
+        );
+    }
+
+    /**
+     * Normalize an array and store parameters
+     * @param {Array} array - Array to normalize
+     * @param {string} name - Name for parameter storage
+     * @returns {Array} - Normalized array
+     */
+    normalizeArray(array, name) {
+        const min = Math.min(...array);
+        const max = Math.max(...array);
         
-        // Create sequences
-        const { X, y } = this.createSequences(normalizedData);
+        // Store normalization parameters
+        this.normalizationParams[name] = { min, max, range: max - min || 1 };
         
-        // Split into train and test sets
-        const splitIndex = Math.floor(X.length * this.trainSize);
+        return array.map(val => (val - min) / (max - min || 1));
+    }
+
+    /**
+     * Denormalize an array
+     * @param {Array} normalizedArray - Normalized array
+     * @param {string} name - Parameter name
+     * @returns {Array} - Denormalized array
+     */
+    denormalizeArray(normalizedArray, name) {
+        const params = this.normalizationParams[name];
+        if (!params) {
+            throw new Error(`Normalization parameters not found for ${name}`);
+        }
         
-        const X_train = X.slice(0, splitIndex);
-        const y_train = y.slice(0, splitIndex);
-        const X_test = X.slice(splitIndex);
-        const y_test = y.slice(splitIndex);
+        return normalizedArray.map(val => val * params.range + params.min);
+    }
+
+    /**
+     * Create sequences for multi-day prediction
+     * @param {Array} normalizedFeatures - Normalized features
+     * @param {Array} normalizedTarget - Normalized target
+     * @returns {Object} - Training and testing datasets
+     */
+    createMultiDaySequences(normalizedFeatures, normalizedTarget) {
+        const sequences = [];
+        const targets = [];
         
-        // Convert to tensors
-        this.X_train = tf.tensor3d(X_train, [X_train.length, this.windowSize, 1]);
-        this.y_train = tf.tensor2d(y_train, [y_train.length, this.forecastDays]);
-        this.X_test = tf.tensor3d(X_test, [X_test.length, this.windowSize, 1]);
-        this.y_test = tf.tensor2d(y_test, [y_test.length, this.forecastDays]);
+        const totalSamples = normalizedTarget.length - this.sequenceLength - this.forecastDays + 1;
         
-        console.log('Dataset prepared:');
-        console.log('X_train shape:', this.X_train.shape);
-        console.log('y_train shape:', this.y_train.shape);
-        console.log('X_test shape:', this.X_test.shape);
-        console.log('y_test shape:', this.y_test.shape);
+        console.log(`Creating sequences: ${totalSamples} samples`);
         
+        for (let i = 0; i < totalSamples; i++) {
+            const sequence = [];
+            for (let j = 0; j < this.sequenceLength; j++) {
+                const timeStep = [];
+                normalizedFeatures.forEach(feature => {
+                    timeStep.push(feature[i + j]);
+                });
+                sequence.push(timeStep);
+            }
+            sequences.push(sequence);
+            
+            // Get next forecastDays target values
+            const nextValues = normalizedTarget.slice(
+                i + this.sequenceLength, 
+                i + this.sequenceLength + this.forecastDays
+            );
+            targets.push(nextValues);
+        }
+
+        // Split into train/test
+        const splitIndex = Math.floor(sequences.length * this.trainTestSplit);
+        
+        const X_train = sequences.slice(0, splitIndex);
+        const y_train = targets.slice(0, splitIndex);
+        const X_test = sequences.slice(splitIndex);
+        const y_test = targets.slice(splitIndex);
+
+        console.log(`Train set: ${X_train.length} samples`);
+        console.log(`Test set: ${X_test.length} samples`);
+
         return {
-            X_train: this.X_train,
-            y_train: this.y_train,
-            X_test: this.X_test,
-            y_test: this.y_test,
-            trainSize: X_train.length,
-            testSize: X_test.length
+            X_train: tf.tensor3d(X_train),
+            y_train: tf.tensor2d(y_train),
+            X_test: tf.tensor3d(X_test),
+            y_test: tf.tensor2d(y_test),
+            featureNames: this.featureColumns,
+            sequenceLength: this.sequenceLength,
+            forecastDays: this.forecastDays
         };
     }
 
@@ -225,58 +313,68 @@ class DataLoader {
      * @returns {tf.Tensor} - Latest window tensor
      */
     getLatestWindow() {
-        if (!this.normalizedData) {
-            throw new Error('Data not loaded');
+        if (!this.data || this.data.length === 0) {
+            throw new Error('No data loaded');
         }
-        
-        const latestWindow = this.normalizedData.slice(-this.windowSize);
-        return tf.tensor3d([latestWindow], [1, this.windowSize, 1]);
-    }
 
-    /**
-     * Calculate returns from prices
-     * @param {Array} prices - Price data
-     * @returns {Array} - Returns data
-     */
-    calculateReturns(prices) {
-        const returns = [];
-        for (let i = 1; i < prices.length; i++) {
-            returns.push((prices[i] - prices[i-1]) / prices[i-1]);
+        // Get last sequenceLength days of features
+        const latestFeatures = this.featureColumns.map(col => 
+            this.data.slice(-this.sequenceLength).map(row => row[col])
+        );
+
+        // Normalize using stored parameters
+        const normalizedFeatures = latestFeatures.map((featureArray, index) => {
+            const params = this.normalizationParams[`feature_${index}`];
+            return featureArray.map(val => (val - params.min) / params.range);
+        });
+
+        // Create time steps
+        const sequence = [];
+        for (let i = 0; i < this.sequenceLength; i++) {
+            const timeStep = normalizedFeatures.map(feature => feature[i]);
+            sequence.push(timeStep);
         }
-        return returns;
+
+        return tf.tensor3d([sequence]);
     }
 
     /**
-     * Clean up tensors to free memory
-     */
-    dispose() {
-        if (this.X_train) this.X_train.dispose();
-        if (this.y_train) this.y_train.dispose();
-        if (this.X_test) this.X_test.dispose();
-        if (this.y_test) this.y_test.dispose();
-    }
-
-    /**
-     * Get dataset statistics
-     * @returns {Object} - Dataset statistics
+     * Get data statistics
+     * @returns {Object} - Data statistics
      */
     getStats() {
-        if (!this.rawData) {
+        if (!this.data || this.data.length === 0) {
             return null;
         }
+
+        const targetValues = this.data.map(row => row[this.targetColumn]);
+        const returns = [];
         
-        const returns = this.calculateReturns(this.rawData);
-        
+        for (let i = 1; i < targetValues.length; i++) {
+            returns.push((targetValues[i] - targetValues[i-1]) / targetValues[i-1]);
+        }
+
         return {
-            totalDays: this.rawData.length,
-            trainSamples: this.X_train ? this.X_train.shape[0] : 0,
-            testSamples: this.X_test ? this.X_test.shape[0] : 0,
-            minPrice: Math.min(...this.rawData).toFixed(2),
-            maxPrice: Math.max(...this.rawData).toFixed(2),
-            meanPrice: (this.rawData.reduce((a, b) => a + b, 0) / this.rawData.length).toFixed(2),
+            totalDays: this.data.length,
+            minPrice: Math.min(...targetValues).toFixed(2),
+            maxPrice: Math.max(...targetValues).toFixed(2),
+            meanPrice: (targetValues.reduce((a, b) => a + b, 0) / targetValues.length).toFixed(2),
             meanReturn: (returns.reduce((a, b) => a + b, 0) / returns.length * 100).toFixed(3),
-            volatility: (Math.sqrt(returns.reduce((sq, n) => sq + n * n, 0) / returns.length) * 100).toFixed(3)
+            volatility: (Math.sqrt(returns.reduce((sq, n) => sq + n * n, 0) / returns.length) * 100).toFixed(3),
+            featureCount: this.featureColumns.length,
+            features: this.featureColumns
         };
+    }
+
+    /**
+     * Clean up resources
+     */
+    dispose() {
+        if (this.data) {
+            this.data = null;
+        }
+        this.featureColumns = [];
+        this.normalizationParams = {};
     }
 }
 
