@@ -1,0 +1,331 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Predictor - Browser GRU Demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@latest"></script>
+    <style>
+        :root {
+            --rose: #e11d48;
+            --rose-light: #fecdd3;
+            --rose-dark: #be123c;
+            --black: #0f172a;
+            --gray: #334155;
+            --light-gray: #e2e8f0;
+            --white: #f8fafc;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--black);
+            color: var(--white);
+            line-height: 1.6;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--rose);
+        }
+        h1 {
+            color: var(--rose-light);
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: var(--light-gray);
+            font-size: 1.1rem;
+        }
+        .card {
+            background: var(--gray);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(225, 29, 72, 0.2);
+        }
+        .card-title {
+            color: var(--rose-light);
+            font-size: 1.5rem;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .btn {
+            background: linear-gradient(135deg, var(--rose), var(--rose-dark));
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(225, 29, 72, 0.4);
+        }
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            background: var(--gray);
+            border: 1px solid var(--rose);
+        }
+        .file-input {
+            display: none;
+        }
+        .file-label {
+            display: inline-block;
+            padding: 12px 24px;
+            background: var(--gray);
+            border: 2px dashed var(--rose);
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        .file-label:hover {
+            background: rgba(225, 29, 72, 0.1);
+        }
+        .controls {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        .progress-bar {
+            height: 8px;
+            background: var(--gray);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 20px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--rose), var(--rose-light));
+            transition: width 0.3s ease;
+        }
+        .status {
+            margin-top: 12px;
+            color: var(--rose-light);
+            font-size: 0.9rem;
+            min-height: 1.2em;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-top: 20px;
+        }
+        .future-predictions {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+            margin-top: 20px;
+        }
+        .prediction-day {
+            background: rgba(225, 29, 72, 0.1);
+            border: 1px solid var(--rose);
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+        .prediction-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--rose-light);
+            margin-top: 8px;
+        }
+        .confusion-matrix {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1px;
+            background: var(--light-gray);
+            margin-top: 20px;
+        }
+        .matrix-cell {
+            background: var(--black);
+            padding: 12px;
+            text-align: center;
+            border: 1px solid var(--gray);
+        }
+        .matrix-header {
+            background: var(--rose-dark);
+            font-weight: bold;
+        }
+        .positive { color: #4ade80; }
+        .negative { color: #f87171; }
+        .icon {
+            width: 20px;
+            height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Stock Predictor</h1>
+            <p class="subtitle">Browser-based GRU Model for S&P 500 Predictions</p>
+        </header>
+
+        <div class="grid">
+            <div>
+                <div class="card">
+                    <h2 class="card-title">
+                        📁 Data Input
+                    </h2>
+                    <p>Upload your S&P 500 CSV file with daily prices</p>
+                    <input type="file" id="csvFile" class="file-input" accept=".csv">
+                    <label for="csvFile" class="file-label" id="fileLabel">
+                        Choose CSV File
+                    </label>
+                    <div id="fileInfo" style="margin-top: 12px; color: var(--rose-light);"></div>
+                </div>
+
+                <div class="card">
+                    <h2 class="card-title">
+                        ⚙️ Model Configuration
+                    </h2>
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; margin-bottom: 8px;">Lookback Window (days):</label>
+                        <input type="number" id="lookback" value="60" min="10" max="120" 
+                               style="width: 100%; padding: 8px; background: var(--black); 
+                                      border: 1px solid var(--rose); color: white; border-radius: 4px;">
+                    </div>
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; margin-bottom: 8px;">Prediction Horizon (days):</label>
+                        <input type="number" id="horizon" value="5" min="1" max="10"
+                               style="width: 100%; padding: 8px; background: var(--black); 
+                                      border: 1px solid var(--rose); color: white; border-radius: 4px;">
+                    </div>
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; margin-bottom: 8px;">Epochs:</label>
+                        <input type="number" id="epochs" value="50" min="10" max="200"
+                               style="width: 100%; padding: 8px; background: var(--black); 
+                                      border: 1px solid var(--rose); color: white; border-radius: 4px;">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2 class="card-title">
+                        🎯 Training Control
+                    </h2>
+                    <div class="controls">
+                        <button id="trainBtn" class="btn">
+                            🚀 Train Model
+                        </button>
+                        <button id="predictBtn" class="btn" disabled>
+                            🔮 Predict Future
+                        </button>
+                        <button id="resetBtn" class="btn btn-secondary">
+                            🔄 Reset
+                        </button>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                    <div class="status" id="status">
+                        Ready to load data
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="card">
+                    <h2 class="card-title">
+                        📊 Future Predictions (Next 5 Days)
+                    </h2>
+                    <div id="futurePredictions" class="future-predictions">
+                        <div class="prediction-day">
+                            <div>Day +1</div>
+                            <div class="prediction-value">-</div>
+                        </div>
+                        <div class="prediction-day">
+                            <div>Day +2</div>
+                            <div class="prediction-value">-</div>
+                        </div>
+                        <div class="prediction-day">
+                            <div>Day +3</div>
+                            <div class="prediction-value">-</div>
+                        </div>
+                        <div class="prediction-day">
+                            <div>Day +4</div>
+                            <div class="prediction-value">-</div>
+                        </div>
+                        <div class="prediction-day">
+                            <div>Day +5</div>
+                            <div class="prediction-value">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2 class="card-title">
+                        📈 Prediction Results
+                    </h2>
+                    <div class="chart-container">
+                        <canvas id="predictionChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2 class="card-title">
+                        📋 Model Performance
+                    </h2>
+                    <div id="performanceMetrics" style="margin-bottom: 20px;">
+                        <div>Accuracy: <span id="accuracy">-</span></div>
+                        <div>Loss: <span id="loss">-</span></div>
+                        <div>Test MSE: <span id="testMse">-</span></div>
+                    </div>
+                    <h3 style="margin-top: 20px; color: var(--rose-light);">Confusion Matrix</h3>
+                    <div id="confusionMatrix" class="confusion-matrix">
+                        <div class="matrix-cell matrix-header"></div>
+                        <div class="matrix-cell matrix-header">Predicted Up</div>
+                        <div class="matrix-cell matrix-header">Predicted Down</div>
+                        <div class="matrix-cell matrix-header">Actual Up</div>
+                        <div class="matrix-cell" id="tp">-</div>
+                        <div class="matrix-cell" id="fn">-</div>
+                        <div class="matrix-cell matrix-header">Actual Down</div>
+                        <div class="matrix-cell" id="fp">-</div>
+                        <div class="matrix-cell" id="tn">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="data-loader.js"></script>
+    <script type="module" src="gru.js"></script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
