@@ -1,4 +1,3 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9,6 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@1.5.1/dist/tfjs-vis.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <style>
         :root {
             --rose-50: #fff1f2;
@@ -107,8 +107,42 @@
             color: var(--rose-500);
         }
 
-        .file-section {
+        .data-source-section {
             margin-bottom: 25px;
+        }
+
+        .source-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--gray);
+            padding-bottom: 15px;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: var(--dark-gray);
+            border: 1px solid var(--gray);
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            background: var(--rose-700);
+            border-color: var(--rose-600);
+        }
+
+        .tab:hover:not(.active) {
+            background: var(--gray);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
         }
 
         .file-upload-area {
@@ -139,6 +173,53 @@
 
         .file-input {
             display: none;
+        }
+
+        .github-input-area {
+            background: rgba(30, 30, 30, 0.7);
+            border: 2px solid var(--rose-800);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+
+        .github-input-area h3 {
+            color: var(--rose-300);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .github-input-area input {
+            width: 100%;
+            padding: 12px 15px;
+            background: var(--black);
+            border: 1px solid var(--gray);
+            border-radius: 8px;
+            color: var(--white);
+            font-size: 1rem;
+            margin-bottom: 15px;
+        }
+
+        .github-input-area input:focus {
+            outline: none;
+            border-color: var(--rose-500);
+        }
+
+        .github-example {
+            background: rgba(159, 18, 57, 0.1);
+            border: 1px solid var(--rose-700);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 15px;
+            font-size: 0.9rem;
+        }
+
+        .github-example code {
+            color: var(--rose-300);
+            font-family: monospace;
+            word-break: break-all;
         }
 
         .preloaded-data {
@@ -193,11 +274,54 @@
             background: linear-gradient(135deg, var(--rose-500), var(--rose-300));
         }
 
+        .button.github {
+            background: linear-gradient(135deg, #24292e, #444d56);
+        }
+
         .controls {
             display: flex;
             flex-wrap: wrap;
             gap: 15px;
             margin-top: 25px;
+        }
+
+        .data-stats {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            border: 1px solid var(--gray);
+        }
+
+        .data-stats h4 {
+            color: var(--rose-300);
+            margin-bottom: 10px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .stat-item {
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.3rem;
+            color: var(--rose-400);
+            font-weight: bold;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--rose-300);
+            margin-top: 5px;
         }
 
         .progress-container {
@@ -409,6 +533,38 @@
             border-radius: 6px;
             border-left: 3px solid var(--rose-500);
         }
+
+        .data-preview {
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .data-preview table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .data-preview th {
+            background: var(--rose-800);
+            color: var(--white);
+            padding: 10px;
+            text-align: left;
+            position: sticky;
+            top: 0;
+        }
+
+        .data-preview td {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--gray);
+        }
+
+        .data-preview tr:hover {
+            background: rgba(244, 63, 94, 0.1);
+        }
     </style>
 </head>
 <body>
@@ -422,36 +578,126 @@
             <div class="panel">
                 <h2 class="panel-title"><i class="fas fa-database"></i> Data Loading</h2>
                 
-                <div class="file-section">
-                    <div class="file-upload-area" id="dropArea">
-                        <i class="fas fa-cloud-upload-alt"></i>
-                        <h3>Upload Your CSV File</h3>
-                        <p>Drag & drop your S&P 500 data file or click to browse</p>
-                        <p><small>Expected format: Single column of daily closing prices</small></p>
-                        <input type="file" id="fileInput" class="file-input" accept=".csv">
+                <div class="data-source-section">
+                    <div class="source-tabs">
+                        <div class="tab active" data-tab="local">Local File</div>
+                        <div class="tab" data-tab="github">GitHub</div>
+                        <div class="tab" data-tab="sample">Sample Data</div>
                     </div>
-                    
-                    <div class="controls">
-                        <button id="loadDataBtn" class="button" disabled>
-                            <i class="fas fa-file-import"></i> Load & Prepare Data
-                        </button>
-                        <button id="viewDataBtn" class="button secondary" disabled>
-                            <i class="fas fa-table"></i> View Data Stats
-                        </button>
+
+                    <div id="localTab" class="tab-content active">
+                        <div class="file-upload-area" id="dropArea">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <h3>Upload Your CSV File</h3>
+                            <p>Drag & drop your S&P 500 data file or click to browse</p>
+                            <p><small>Expected format: Single column of daily closing prices</small></p>
+                            <input type="file" id="fileInput" class="file-input" accept=".csv">
+                        </div>
+                        
+                        <div class="data-stats" id="localStats" style="display: none;">
+                            <h4>Local File Statistics</h4>
+                            <div class="stats-grid">
+                                <div class="stat-item">
+                                    <div class="stat-value" id="localCount">0</div>
+                                    <div class="stat-label">Data Points</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value" id="localMin">0</div>
+                                    <div class="stat-label">Min Price</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value" id="localMax">0</div>
+                                    <div class="stat-label">Max Price</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value" id="localAvg">0</div>
+                                    <div class="stat-label">Average</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="githubTab" class="tab-content">
+                        <div class="github-input-area">
+                            <h3><i class="fab fa-github"></i> Load from GitHub</h3>
+                            <input type="text" id="githubUrl" placeholder="Enter GitHub Raw URL or repository path" 
+                                   value="https://github.com/buschevapoly-del/new_project_nndl/blob/97648cb37fafc348b073c1085c7c31df779e97dd/my_data.csv">
+                            <button id="loadGithubBtn" class="button github">
+                                <i class="fas fa-download"></i> Load from GitHub
+                            </button>
+                            
+                            <div class="github-example">
+                                <strong>Example:</strong><br>
+                                <code>https://github.com/buschevapoly-del/new_project_nndl/blob/97648cb37fafc348b073c1085c7c31df779e97dd/my_data.csv</code>
+                            </div>
+                        </div>
+                        
+                        <div class="data-stats" id="githubStats" style="display: none;">
+                            <h4>GitHub Data Statistics</h4>
+                            <div class="stats-grid">
+                                <div class="stat-item">
+                                    <div class="stat-value" id="githubCount">0</div>
+                                    <div class="stat-label">Data Points</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value" id="githubMin">0</div>
+                                    <div class="stat-label">Min Price</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value" id="githubMax">0</div>
+                                    <div class="stat-label">Max Price</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value" id="githubAvg">0</div>
+                                    <div class="stat-label">Average</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="sampleTab" class="tab-content">
+                        <div class="preloaded-data">
+                            <h4><i class="fas fa-download"></i> Generate Sample Data</h4>
+                            <p>Generate synthetic S&P 500 data for testing:</p>
+                            
+                            <div class="controls">
+                                <button id="generateSampleBtn" class="button download">
+                                    <i class="fas fa-magic"></i> Generate Sample Data
+                                </button>
+                                <button id="downloadSampleBtn" class="button secondary">
+                                    <i class="fas fa-file-download"></i> Download as CSV
+                                </button>
+                            </div>
+                            
+                            <div class="data-preview" id="samplePreview" style="display: none; margin-top: 20px;">
+                                <h4>Sample Data Preview</h4>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Price</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sampleDataBody">
+                                        <!-- Sample data will be inserted here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="preloaded-data">
-                    <h4><i class="fas fa-download"></i> Need Sample Data?</h4>
-                    <p>Download a sample S&P 500 CSV file to test the application:</p>
-                    <div class="controls">
-                        <button id="downloadSampleBtn" class="button download">
-                            <i class="fas fa-file-download"></i> Download Sample CSV
-                        </button>
-                    </div>
-                    <p style="margin-top: 15px; font-size: 0.9rem; color: var(--rose-300);">
-                        <i class="fas fa-info-circle"></i> The sample contains real S&P 500 historical data.
-                    </p>
+                <div class="controls">
+                    <button id="loadDataBtn" class="button" disabled>
+                        <span id="loadIcon" class="fas fa-file-import"></span>
+                        <span id="loadText">Load & Prepare Data</span>
+                    </button>
+                    <button id="viewDataBtn" class="button secondary" disabled>
+                        <i class="fas fa-table"></i> View Data Preview
+                    </button>
+                    <button id="clearDataBtn" class="button secondary">
+                        <i class="fas fa-trash"></i> Clear Data
+                    </button>
                 </div>
 
                 <div class="progress-container" id="dataProgressContainer" style="display: none;">
@@ -564,8 +810,269 @@
         </footer>
     </div>
 
-    <script type="module" src="data-loader.js"></script>
-    <script type="module" src="gru.js"></script>
-    <script type="module" src="app.js"></script>
-</body>
-</html>
+    <!-- Data Loader Script -->
+    <script>
+        // Data Loader Module
+        class DataLoader {
+            constructor() {
+                this.loadedData = null;
+                this.dataStats = null;
+                this.currentSource = null;
+            }
+
+            async loadLocalFile(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    
+                    reader.onload = (event) => {
+                        try {
+                            const content = event.target.result;
+                            const data = this.parseCSVData(content);
+                            resolve(data);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    };
+                    
+                    reader.onerror = () => reject(new Error('Error reading file'));
+                    reader.readAsText(file);
+                });
+            }
+
+            async loadFromGitHub(url) {
+                try {
+                    // Convert GitHub URL to raw URL
+                    let rawUrl = url;
+                    if (url.includes('github.com') && !url.includes('raw.githubusercontent.com')) {
+                        rawUrl = url
+                            .replace('github.com', 'raw.githubusercontent.com')
+                            .replace('/blob/', '/');
+                    }
+                    
+                    console.log('Loading from GitHub URL:', rawUrl);
+                    
+                    const response = await fetch(rawUrl);
+                    
+                    if (!response.ok) {
+                        throw new Error(`GitHub error: ${response.status} ${response.statusText}`);
+                    }
+                    
+                    const content = await response.text();
+                    return this.parseCSVData(content);
+                    
+                } catch (error) {
+                    throw new Error(`Failed to load from GitHub: ${error.message}`);
+                }
+            }
+
+            parseCSVData(csvContent) {
+                const results = [];
+                const lines = csvContent.split('\n');
+                let dateCounter = 0;
+                const startDate = new Date('2000-01-01');
+                
+                for (const line of lines) {
+                    const value = line.trim();
+                    
+                    // Skip header and empty lines
+                    if (value === '^GSPC' || value === '""' || !value) {
+                        continue;
+                    }
+                    
+                    try {
+                        const price = parseFloat(value);
+                        
+                        if (!isNaN(price)) {
+                            const currentDate = new Date(startDate);
+                            currentDate.setDate(startDate.getDate() + dateCounter);
+                            dateCounter++;
+                            
+                            results.push({
+                                date: currentDate.toISOString().split('T')[0],
+                                price: price,
+                                timestamp: currentDate.getTime()
+                            });
+                        }
+                    } catch (error) {
+                        console.warn('Error parsing line:', value, error);
+                    }
+                }
+                
+                return results;
+            }
+
+            generateSampleData(count = 500) {
+                const data = [];
+                let currentPrice = 1000;
+                const startDate = new Date('2020-01-01');
+                
+                for (let i = 0; i < count; i++) {
+                    // Random walk with slight upward trend
+                    const change = (Math.random() - 0.48) * 20;
+                    currentPrice += change;
+                    
+                    // Ensure price stays positive
+                    currentPrice = Math.max(100, currentPrice);
+                    
+                    const currentDate = new Date(startDate);
+                    currentDate.setDate(startDate.getDate() + i);
+                    
+                    data.push({
+                        date: currentDate.toISOString().split('T')[0],
+                        price: Math.round(currentPrice * 100) / 100,
+                        timestamp: currentDate.getTime()
+                    });
+                }
+                
+                return data;
+            }
+
+            calculateStats(data) {
+                if (!data || data.length === 0) {
+                    return null;
+                }
+                
+                const prices = data.map(item => item.price);
+                const min = Math.min(...prices);
+                const max = Math.max(...prices);
+                const sum = prices.reduce((a, b) => a + b, 0);
+                const avg = sum / prices.length;
+                
+                // Calculate standard deviation
+                const squaredDiffs = prices.map(price => Math.pow(price - avg, 2));
+                const variance = squaredDiffs.reduce((a, b) => a + b, 0) / prices.length;
+                const stdDev = Math.sqrt(variance);
+                
+                return {
+                    count: data.length,
+                    min: min.toFixed(2),
+                    max: max.toFixed(2),
+                    avg: avg.toFixed(2),
+                    stdDev: stdDev.toFixed(2),
+                    range: (max - min).toFixed(2),
+                    firstDate: data[0].date,
+                    lastDate: data[data.length - 1].date
+                };
+            }
+
+            convertToCSV(data) {
+                const headers = ['Date,Price'];
+                const rows = data.map(item => `${item.date},${item.price}`);
+                return [...headers, ...rows].join('\n');
+            }
+
+            filterDailyData(data) {
+                const dailyMap = new Map();
+                data.forEach(item => dailyMap.set(item.date, item));
+                return Array.from(dailyMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+            }
+
+            normalizeData(data) {
+                if (!data || data.length === 0) return { normalized: [], min: 0, max: 0 };
+                
+                const prices = data.map(item => item.price);
+                const min = Math.min(...prices);
+                const max = Math.max(...prices);
+                const range = max - min;
+                
+                const normalized = data.map(item => ({
+                    ...item,
+                    normalizedPrice: range === 0 ? 0.5 : (item.price - min) / range
+                }));
+                
+                return { normalized, min, max };
+            }
+
+            denormalizeValue(value, min, max) {
+                return value * (max - min) + min;
+            }
+        }
+
+        // Initialize Data Loader
+        const dataLoader = new DataLoader();
+
+        // DOM Elements
+        const tabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+        const fileInput = document.getElementById('fileInput');
+        const dropArea = document.getElementById('dropArea');
+        const githubUrlInput = document.getElementById('githubUrl');
+        const loadGithubBtn = document.getElementById('loadGithubBtn');
+        const generateSampleBtn = document.getElementById('generateSampleBtn');
+        const downloadSampleBtn = document.getElementById('downloadSampleBtn');
+        const loadDataBtn = document.getElementById('loadDataBtn');
+        const viewDataBtn = document.getElementById('viewDataBtn');
+        const clearDataBtn = document.getElementById('clearDataBtn');
+        const dataStatus = document.getElementById('dataStatus');
+        const dataProgressContainer = document.getElementById('dataProgressContainer');
+        const dataProgressFill = document.getElementById('dataProgressFill');
+        const dataProgressText = document.getElementById('dataProgressText');
+        const dataStatusText = document.getElementById('dataStatusText');
+        const loadIcon = document.getElementById('loadIcon');
+        const loadText = document.getElementById('loadText');
+
+        // Tab Switching
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.getAttribute('data-tab');
+                
+                // Update tabs
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Update content
+                tabContents.forEach(content => {
+                    content.classList.remove('active');
+                    if (content.id === `${tabId}Tab`) {
+                        content.classList.add('active');
+                    }
+                });
+                
+                // Enable/disable load button based on tab
+                updateLoadButtonState();
+            });
+        });
+
+        // File Upload Events
+        dropArea.addEventListener('click', () => fileInput.click());
+        
+        dropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropArea.style.background = 'rgba(244, 63, 94, 0.1)';
+        });
+        
+        dropArea.addEventListener('dragleave', () => {
+            dropArea.style.background = '';
+        });
+        
+        dropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropArea.style.background = '';
+            
+            if (e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                handleFileSelect();
+            }
+        });
+        
+        fileInput.addEventListener('change', handleFileSelect);
+        
+        function handleFileSelect() {
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                dropArea.innerHTML = `
+                    <i class="fas fa-file-csv" style="color: #48bb78;"></i>
+                    <h3>File Selected</h3>
+                    <p>${file.name}</p>
+                    <p><small>Size: ${(file.size / 1024).toFixed(2)} KB</small></p>
+                `;
+                updateLoadButtonState();
+            }
+        }
+
+        // GitHub Loading
+        loadGithubBtn.addEventListener('click', async () => {
+            const url = githubUrlInput.value.trim();
+            
+            if (!url) {
+                showStatus('Please enter a GitHub URL',
